@@ -1,0 +1,78 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js & Frontend Build
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Backend & Nested Builds
+backend/dist/
+backend/node_modules/
+vm101/node_modules/
+vm102/node_modules/
+vm103/node_modules/
+vm102/.next/
+vm103/dist/
+
+# Archives, Backups & Compressed Packages
+*.tar.gz
+*.tgz
+*.zip
+*.tar
+update-frontend.tar.gz
+update-src.tar.gz
+
+# Environment Files & Secrets (Never commit credentials)
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+backend/Backend-VRU-Marketplace-main/.env
+backend/Backend-VRU-Marketplace-main/.env.*
+vm101/.env
+vm102/.env
+vm103/.env
+!.env.example
+!backend/Backend-VRU-Marketplace-main/.env.example
+
+# Temporary Scratch & Media Storage
+scratch/
+.tempmediaStorage/
+.temp/
+uploads/
+/var/uploads/
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.pem
+*.key

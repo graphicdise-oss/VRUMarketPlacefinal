@@ -1,0 +1,33 @@
+# VRU Marketplace — Database Deployment (VM 104)
+# รัน PostgreSQL 16 Alpine บนพอร์ต 5432 พร้อมเก็บข้อมูลบน Volume ถาวร
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vru-marketplace-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 32)}
+      POSTGRES_DB: ${POSTGRES_DB:-vru_marketplace}
+    ports:
+      # เปิดพอร์ต 5432 เพื่อให้ VM 103 (Backend) เชื่อมต่อได้
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vru_marketplace}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-1g}
+    logging: *logging
+
+volumes:
+  postgres-data:

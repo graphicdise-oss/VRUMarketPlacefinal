@@ -1,0 +1,15 @@
+# Local development only — never on the real server (§99).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+#
+# or put `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in your own .env so plain
+# `docker compose` picks both up. A separate file you have to name, rather than
+# docker-compose.override.yml (which compose loads on its own): an override file would sit in the
+# server's checkout too and quietly publish the database there.
+
+services:
+  postgres:
+    # So `npm test`, `prisma migrate dev` and `prisma studio` on the host can reach it. Loopback
+    # only, even on a laptop: a coffee-shop network has no business reaching your database.
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'

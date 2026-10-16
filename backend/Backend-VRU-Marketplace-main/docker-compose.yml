@@ -1,0 +1,160 @@
+# The single-instance deployment this project is built for — and, with docker-compose.dev.yml on
+# top, local development.
+#
+# This file is safe to run on the real server as it is (§99): the database is reachable only from
+# inside this compose network, the API only from the server itself (the Nginx in
+# ops/deploy/nginx-site.conf sits in front of it), and neither the database nor the API starts
+# while a password or secret is missing or still `.env.example`'s placeholder. Development
+# conveniences — the database published to the host for `npm test` and `prisma migrate dev` — live
+# in docker-compose.dev.yml and have to be asked for, so forgetting a flag on the server fails
+# closed rather than open.
+#
+# Four things tie this system to one instance (CLAUDE.md): the cron behind the three clocks, the
+# in-memory Socket.io adapter, the upload volume below and the in-memory rate-limit counters.
+# Scaling out means fixing all four, not just adding a second container.
+
+# Docker's default json-file log has no ceiling, and on a server that runs for months it fills the
+# disk eventually. 5 × 10MB per container keeps days of logs without that risk.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      # Required, with no default: `postgres` was the default here once, and a default is what a
+      # deployment ends up running with. Hex only (`openssl rand -hex 32`) — it is spliced into
+      # the DATABASE_URL below, where characters like @ / : would need URL-encoding.
+      #
+      # ⚠️ Postgres reads this only when the data volume is first created. Changing it afterwards
+      # does not change the database's password — see ops/deploy/README.md for how.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 32)}
+      POSTGRES_DB: ${POSTGRES_DB:-vru_marketplace}
+    # Refuses `.env.example`'s placeholder before the image's own entrypoint runs. `:?` below only
+    # catches an empty value, and the API's own refusal (§99) comes too late for this one: Postgres
+    # would already have initialised its volume with a password printed in a public file — and it
+    # never reads POSTGRES_PASSWORD again, so fixing .env afterwards leaves the volume on the
+    # placeholder and the API unable to log in.
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        case "$$POSTGRES_PASSWORD" in *replace-me*)
+        echo 'POSTGRES_PASSWORD is still the placeholder from .env.example — set a real one (openssl rand -hex 32).' >&2;
+        exit 1;; esac;
+        exec docker-entrypoint.sh postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # No `ports:` on purpose. The API and the migrate job reach the database over the compose
+    # network; publishing 5432 would put it on the server's network interface, and Docker's
+    # published ports go around the host firewall (ufw/iptables rules do not see them).
+    healthcheck:
+      # The api container waits for this. Without it, the first boot races the database's
+      # own initialisation and the app exits before Postgres is listening.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-vru_marketplace}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # The university server is short on memory, and without a ceiling one busy container can push
+    # the other — or the whole machine — into swap. Starting values, to be set from the server's
+    # real size (docs/HANDOFF.md, question 2.1 to IT).
+    mem_limit: ${POSTGRES_MEMORY_LIMIT:-512m}
+    logging: *logging
+
+  # Applies migrations once, then exits. Built from the `build` stage because that is where the
+  # Prisma CLI lives — it is a devDependency, and the runtime image deliberately does not carry it.
+  #
+  # A separate service rather than a shell chain in front of the server: a failed migration stops
+  # the deploy here, visibly, instead of looking like the API failing to boot.
+  migrate:
+    build:
+      context: .
+      target: build
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-vru_marketplace}
+    command: npx prisma migrate deploy
+    restart: 'no'
+    logging: *logging
+
+  api:
+    build:
+      context: .
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      # Everything here overrides env_file, which is the point for NODE_ENV below.
+      #
+      # Inside the network the database is `postgres`, whatever .env says for host use.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:-vru_marketplace}
+      UPLOAD_DIR: /var/lib/vru-marketplace/uploads
+      PORT: '3000'
+      # Pinned, because `.env` is copied from `.env.example` which says `development` — and that
+      # value reaching the container would publish the whole OpenAPI document at /api/v1/docs on a
+      # deployment, describing every admin route to anyone who asks. The Dockerfile's own
+      # ENV NODE_ENV=production does not help: env_file beats it.
+      #
+      # Production is also what makes the app refuse to start on `.env.example`'s placeholder
+      # secrets (§99), and what marks the session cookies Secure — so the site has to be served
+      # over HTTPS, or nobody can sign in.
+      #
+      # For a dev server with the document served, run `npm run start:dev` on the host rather than
+      # changing this.
+      NODE_ENV: production
+      # Photos are re-encoded by sharp (libvips), whose many threads each get a glibc malloc arena
+      # that is never handed back — memory the process keeps after the upload is long done. Two
+      # arenas is what sharp's own documentation recommends for glibc; measured in §99, a full
+      # dispute left the API at 383MiB instead of 502MiB.
+      MALLOC_ARENA_MAX: '2'
+    ports:
+      # Loopback only: the one way in is the Nginx on this same machine. Published on every
+      # interface, port 3000 would be a second front door with none of what Nginx adds — and, as
+      # with the database above, Docker would open it around the host firewall.
+      #
+      # A fixed 3000, not `${PORT}`: `upstream vru_api` in ops/deploy/nginx-site.conf points here,
+      # and a PORT edited in .env would move this side alone and turn every API call into a 502.
+      # To use another port, change it in both files.
+      - '127.0.0.1:4000:3000'
+    volumes:
+      # K1: uploads live on a volume, not in object storage. Slips and dispute evidence are
+      # in here — this volume is what a backup plan has to cover (issue #21).
+      - uploads:/var/lib/vru-marketplace/uploads
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(\"http://127.0.0.1:3000/api/v1/health\").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # See postgres above. A dispute's evidence (10 photos × 10MB) is held in memory while it is
+    # re-encoded. Measured in §99: idle ≈ 250MiB, one full dispute peaks ≈ 450MiB, two at once
+    # ≈ 700MiB. Over the ceiling the kernel kills the process, restart brings it back in seconds,
+    # and every open chat and request in flight is lost — so it has to fit two with room to spare.
+    #
+    # What stops a burst of uploads from reaching it is in the app, not here (§100): uploads wait on
+    # disk rather than in memory, at most IMAGE_PROCESSING_CONCURRENCY are re-encoded at once, and
+    # each account has an hourly upload ceiling. Measured: ten simultaneous full disputes peaked at
+    # 508MiB of process memory.
+    mem_limit: ${API_MEMORY_LIMIT:-1g}
+    logging: *logging
+
+volumes:
+  postgres-data:
+  uploads:

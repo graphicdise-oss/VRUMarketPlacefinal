@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Without rootDir, the root-level prisma.config.ts and vitest.config.ts pull the common
+    // source root up to the repo root and the entry point lands at dist/src/main.js.
+    "rootDir": "./src"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}

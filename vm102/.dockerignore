@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+.env*.local
+README.md
+backend
+dist
+scripts
+*.log
+tests
+**/*.test.*

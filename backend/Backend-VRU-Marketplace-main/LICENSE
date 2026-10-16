@@ -1,0 +1,83 @@
+Copyright (c) 2026 มหาวิทยาลัยราชภัฏวไลยอลงกรณ์ ในพระบรมราชูปถัมภ์ จังหวัดปทุมธานี
+Copyright (c) 2026 Valaya Alongkorn Rajabhat University under the Royal Patronage,
+Pathum Thani Province. All rights reserved.
+
+พัฒนาโดย บริษัท กราฟฟิกเทค จำกัด ตามสัญญาจ้าง · บริษัทไม่ได้ถือลิขสิทธิ์ในงานนี้
+Developed under contract by บริษัท กราฟฟิกเทค จำกัด (the contractor), which holds
+no copyright in this work.
+
+ฉบับภาษาไทยเป็นฉบับที่ใช้บังคับ ฉบับภาษาอังกฤษเป็นคำแปลเพื่อความสะดวกเท่านั้น
+The Thai text governs. The English text is a convenience translation.
+
+
+─────────────────────────────────────────────────────────────────────────────
+กรรมสิทธิ์ / OWNERSHIP
+─────────────────────────────────────────────────────────────────────────────
+
+ซอฟต์แวร์ ซอร์สโค้ด โครงสร้างฐานข้อมูล และเอกสารทั้งหมดใน repository นี้ พัฒนาขึ้น
+ภายใต้สัญญาจ้างพัฒนาต่อยอดแพลตฟอร์มดิจิทัล VRU Marketplace และลิขสิทธิ์ตลอดจน
+ทรัพย์สินทางปัญญาทั้งหมด ตกเป็นกรรมสิทธิ์ของมหาวิทยาลัยราชภัฏวไลยอลงกรณ์
+ในพระบรมราชูปถัมภ์ แต่เพียงผู้เดียว
+
+The software, source code, database schema, and all documentation in this
+repository were developed under a contract to extend the VRU Marketplace
+digital platform. All copyright and intellectual property in them belong
+solely to Valaya Alongkorn Rajabhat University under the Royal Patronage.
+
+
+─────────────────────────────────────────────────────────────────────────────
+สิทธิ์ของมหาวิทยาลัย / RIGHTS OF THE UNIVERSITY
+─────────────────────────────────────────────────────────────────────────────
+
+มหาวิทยาลัยฯ มีสิทธิ์ติดตั้ง ใช้งาน ทำซ้ำ ดัดแปลง พัฒนา ปรับปรุง และต่อยอดซอฟต์แวร์นี้
+ได้อย่างไม่มีเงื่อนไข รวมถึงการมอบหมายให้บุคคลอื่นดำเนินการแทน โดยไม่ต้องขออนุญาต
+และไม่ต้องเสียค่าตอบแทนเพิ่มเติมแก่ผู้ใด
+
+The University may install, operate, reproduce, modify, develop, improve, and
+build upon this software without condition, including by engaging any third
+party to do so on its behalf, without seeking permission from or paying
+further consideration to anyone.
+
+
+─────────────────────────────────────────────────────────────────────────────
+ข้อห้าม / RESTRICTIONS
+─────────────────────────────────────────────────────────────────────────────
+
+ห้ามผู้ใดนอกจากมหาวิทยาลัยฯ นำส่วนหนึ่งส่วนใดของซอฟต์แวร์ ซอร์สโค้ด หรือฐานข้อมูลนี้
+ไปใช้ เผยแพร่ ทำซ้ำ ดัดแปลง หรือจำหน่ายต่อแก่บุคคลภายนอก เว้นแต่ได้รับอนุญาต
+เป็นลายลักษณ์อักษรจากมหาวิทยาลัยฯ ก่อน
+
+ข้อห้ามนี้ใช้กับ บริษัท กราฟฟิกเทค จำกัด ในฐานะผู้รับจ้างที่พัฒนาซอฟต์แวร์นี้ด้วย
+
+No person other than the University may use, publish, reproduce, modify, or
+resell any part of this software, source code, or database to any third party
+without prior written permission from the University.
+
+This restriction applies to บริษัท กราฟฟิกเทค จำกัด, the contractor that
+developed this software, as well.
+
+
+─────────────────────────────────────────────────────────────────────────────
+ส่วนประกอบของบุคคลภายนอก / THIRD-PARTY MATERIAL
+─────────────────────────────────────────────────────────────────────────────
+
+ข้อมูลอ้างอิง จังหวัด–อำเภอ–ตำบล–รหัสไปรษณีย์ ใน
+`prisma/reference-data/thai-geography/` มาจากโครงการ kongvut/thai-province-data
+ซึ่งอยู่ภายใต้ใบอนุญาต MIT · ใบอนุญาตและประกาศลิขสิทธิ์ของต้นทางอยู่ที่
+`prisma/reference-data/thai-geography/LICENSE-upstream` และต้องคงอยู่คู่กับไฟล์เหล่านั้น
+เสมอ · ใบอนุญาต MIT อนุญาตให้รวมไว้ในงานที่สงวนลิขสิทธิ์ได้ จึงไม่ขัดกับเอกสารฉบับนี้
+
+The province–district–subdistrict–postcode reference data in
+`prisma/reference-data/thai-geography/` is taken from the
+kongvut/thai-province-data project and remains under the MIT Licence. Its
+licence and copyright notice are kept at
+`prisma/reference-data/thai-geography/LICENSE-upstream` and must travel with
+those files. The MIT Licence permits inclusion in a proprietary work, so it
+does not conflict with this notice.
+
+ส่วนประกอบอื่นที่ติดตั้งผ่าน npm ไม่ได้ถูก commit ไว้ใน repository นี้ และยังคงอยู่ภายใต้
+ใบอนุญาตของตนเอง · ดู `package.json` และ `package-lock.json`
+
+Other dependencies installed through npm are not committed to this repository
+and remain under their own licences. See `package.json` and
+`package-lock.json`.

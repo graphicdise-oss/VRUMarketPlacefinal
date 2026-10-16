@@ -1,0 +1,39 @@
+# Secrets — CLAUDE.md forbids committing real values. .env.example is the tracked one.
+.env
+.env.*
+!.env.example
+
+# The real backup destination path (#21) — real infra info, same reasoning as .env above.
+# ops/backup/backup.env.example is the tracked one.
+/ops/backup/backup.env
+
+# Uploaded files live on a Docker volume (K1). Never in git: they are user photos,
+# payment slips and dispute evidence.
+/uploads/
+/var/uploads/
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Prisma's generated client
+/generated/
+/prisma/generated/
+
+# Editor and OS noise
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+*.swp
+
+# Logs
+logs/
+*.log
+npm-debug.log*

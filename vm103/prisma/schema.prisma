@@ -1,0 +1,2648 @@
+// VRU Marketplace — schema
+//
+// Conventions locked in CLAUDE.md ("ของที่เปลี่ยนทีหลังแล้วเจ็บ") and DECISIONS.md §9.
+// Every table that lands here must follow them, because changing them later means
+// migrating existing rows:
+//
+//   id     UUIDv7        (not autoincrement, not UUIDv4)
+//   time   TIMESTAMPTZ   storing UTC; converted to Thai time only at display
+//   money  amount_minor  (satang, integer) + currency — never a float
+//
+// Column names are snake_case and mapped with @map; JSON in and out of the API is
+// camelCase (M2). Never let a column name leak into a response.
+//
+// ⚠️ A MIGRATION THAT HAS BEEN COMMITTED IS NEVER EDITED. Anyone who has already run it has
+// state that depends on its exact contents, and Prisma records its checksum — editing one
+// makes every existing database report as drifted. Add a new migration instead. This applies
+// to a migration you wrote five minutes ago if it has left your machine.
+//
+// There is no `@default(uuid(7))`: uuidv7() is a PostgreSQL 18 function and this project runs
+// 16. Ids are generated in the application by newId() in src/common/id.ts, so every `create`
+// passes an id explicitly. See that file for why v7 rather than v4.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 removed `url` from the datasource block. The connection string lives in
+// prisma.config.ts for the CLI, and the app passes a driver adapter to PrismaClient.
+datasource db {
+  provider = "postgresql"
+}
+
+/// Platform-level role. Community-level rights live in CommunityAdmin (topic 3) and are
+/// deliberately not here: one person can be a buyer, a shop owner and an admin of several
+/// communities at once, which a single role column cannot express.
+///
+/// A Prisma enum rather than the String-plus-union pattern audit_log uses. The reasoning there
+/// was that eleven later topics each add action names, and a DB enum would couple them through
+/// ALTER TYPE migrations. This set is closed instead: CLAUDE.md fixes the platform roles at two,
+/// because "seller" is having a Shop and "buyer" is everyone. A closed set is worth the database
+/// rejecting a value the application never meant to write.
+enum UserRole {
+  USER
+  SUPER_ADMIN
+
+  @@map("user_role")
+}
+
+/// A person. One row per human, for the lifetime of the system.
+///
+/// ⚠️ **Nothing deletes a row here, ever.** G3 and invariant 5 settled that a PDPA erasure
+/// overwrites the personal fields and keeps the row and its id, because every past order carries
+/// a snapshot of the buyer's name and phone and a foreign key back to here — deleting the row
+/// would remove the key and none of the personal data. Topic 12 writes the overwriting; this
+/// schema's job is to leave that possible, which means: no cascade reaches this table, every
+/// erasable field is nullable or overwritable, and no column is relied on to be immutable.
+///
+/// Two things are deliberately absent:
+///
+///   - **Name and phone.** They belong to Address (topic 6), because a delivery name is a
+///     property of a delivery, not of an account, and the same person ships to their mother's
+///     house under their mother's name.
+///   - **A status enum.** Account state is timestamps — `bannedAt` now, `erasedAt` when topic 12
+///     arrives — so "banned" also answers "since when", and a later state needs a column rather
+///     than an ALTER TYPE on a value the rest of the system already switches on. The reason for
+///     a ban is not here either: it is a required field on the audit_log entry (USER_BANNED is in
+///     ACTIONS_REQUIRING_REASON), which is where an admin's words about a person belong.
+model User {
+  id String @id @db.Uuid
+
+  /// Lowercased and trimmed before it ever reaches here, so that one person cannot hold both
+  /// Foo@example.com and foo@example.com — addresses are case-insensitive in practice, and a
+  /// duplicate account is exactly what user story 4 of #3 says must not happen.
+  email String @unique @db.VarChar(255)
+
+  /// Null means this account has no password: it was created through Google (#26) and signs in
+  /// that way. Nullable from the first migration because I16 needs the distinction — a password
+  /// reset for such an account must answer "this account signs in with Google" rather than
+  /// emailing a reset link for a password that does not exist.
+  passwordHash String? @map("password_hash")
+
+  role UserRole @default(USER)
+
+  /// When the address was proven, not whether. B0.1 gates ordering and opening a shop on this;
+  /// #25 owns the email that sets it.
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
+
+  /// Set means banned, and the guard checks it on every request (invariant 7). #29 owns the
+  /// endpoint that sets it and the order-freezing that follows.
+  bannedAt DateTime? @map("banned_at") @db.Timestamptz(6)
+
+  /// #70 (G3): set once, the moment this account is erased under PDPA — never cleared. `email`
+  /// and `passwordHash` are overwritten in the same write (never `DELETE`, invariant 5's own PDPA
+  /// exception), which already makes signing back in impossible on its own; this column exists
+  /// only so `AccountErasureService` has an idempotent gate ("already erased, refuse a second
+  /// attempt") that survives the email having changed — a lookup keyed on the pre-erasure email
+  /// cannot serve that purpose once this column is the only thing still naming the same row.
+  erasedAt DateTime? @map("erased_at") @db.Timestamptz(6)
+
+  /// #71 (H9): set the moment a self-erasure request arrives while an order — as buyer or as
+  /// seller — is still non-terminal, the one case #70 refused outright. Null means "no request
+  /// queued". Left populated even after `erasedAt` is finally set (harmless, and a small piece of
+  /// history: "how long did this person wait") — nothing reads it once `erasedAt` is non-null,
+  /// since `AccountErasureQueueSweepTask`'s own candidate query already excludes those rows.
+  erasureRequestedAt DateTime? @map("erasure_requested_at") @db.Timestamptz(6)
+
+  /// §87: who queued the request above — this account itself, or the super admin who asked on a
+  /// banned account's behalf (#74). Only an admin-queued request is withdrawn by an unban: it
+  /// rested on the ban, while one the holder asked for rests on nothing an admin can undo. A plain
+  /// id, not a relation: it is read once, compared with `id`, and never joined.
+  erasureRequestedBy String? @map("erasure_requested_by") @db.Uuid
+
+  /// §98 (owner's decision in §93): when the person ticked "อายุ 20 ปีขึ้นไป หรือผู้ปกครองรับทราบ
+  /// และยินยอมแล้ว" at sign-up — the whole record of it; no date of birth is ever asked or kept.
+  /// Null for an account created before §98 (none exist in production: it starts from an empty
+  /// database). Not overwritten by a PDPA erasure: it says nothing about who the person is.
+  ageConfirmedAt DateTime? @map("age_confirmed_at") @db.Timestamptz(6)
+
+  /// §101: Google's own id (`sub`) for the Google account connected to this one, once connected.
+  /// A connected account is recognised by this, not by its address alone — an address can come back
+  /// attached to a different Google account (a workplace account deleted and recreated), and that
+  /// one must not walk in. Set when an account is created with Google (including the fresh account
+  /// that replaces a retired unverified one) and when a signed-in owner connects Google. Cleared by a PDPA erasure:
+  /// it identifies the person as surely as their address does.
+  googleSubject String? @unique @map("google_subject") @db.VarChar(255)
+
+  /// From the Clock, not from the database — see the comment on Session.createdAt.
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// I12: the statistic that makes a dispute ruling stick lives on the *person*, not on `Shop`
+  /// (#34) — a shop is soft-deleted and reopened freely (H12), and a counter that reset on that
+  /// would let a seller launder a losing record by closing and reopening. Topic 10 is the only
+  /// writer; #34 only reads it onto the public shop page (I12's "ผู้ซื้อประเมินความเสี่ยงก่อนโอน").
+  disputeLostCount Int @default(0) @map("dispute_lost_count")
+
+  sessions                    Session[]
+  verificationTokens          VerificationToken[]
+  /// Every community this user administers. The reverse side of CommunityAdmin.user — see that
+  /// model for why `assignedBy` (who put them there) is deliberately not a second relation here.
+  communityAdmins             CommunityAdmin[]
+  communityRequests           CommunityRequest[]
+  /// At most one **open** shop — B2's "1 คน = 1 ร้าน ทั้งระบบ" is a partial unique index on
+  /// `Shop.ownerId` (see that model's comment for why a plain `@unique` cannot express it), not a
+  /// `?` here: Prisma still requires this to be a to-many relation once `ownerId` is not globally
+  /// unique, even though the database enforces "at most one that is still open".
+  shops                       Shop[]
+  /// #47: every delivery address this person has ever saved, including soft-deleted ones — see
+  /// `Address` for why the recipient name and phone live there rather than here.
+  addresses                   Address[]
+  /// #48 (K4): lazily created on the first item added — most users have none, so this is `?`
+  /// rather than assuming a row exists for every account the way `sessions`/`addresses` do.
+  cart                        Cart?
+  /// #49: every order this person placed as a buyer. Nothing here for "orders received as a
+  /// seller" — that's `Shop.orders`, reached through the shop the person owns, not this relation.
+  /// Named explicitly (not left implicit) because #55 adds a second, unrelated FK from `Order` to
+  /// `User` (`sellerConfirmedByUser` below) — Prisma needs the two relations told apart.
+  orders                      Order[]                          @relation("OrderBuyer")
+  /// #54: every `PaymentSlip` this person has rejected as a shop owner (#56 writes it) —
+  /// named for the action, not "as a seller", because a community admin never appears here.
+  rejectedPaymentSlips        PaymentSlip[]
+  /// #55 (K8): every order this person has confirmed payment for as a shop owner. Read together
+  /// with `Order.sellerConfirmedAt` — this relation only exists to give that column a foreign key;
+  /// no endpoint lists "orders I've confirmed" through it.
+  sellerConfirmedOrders       Order[]                          @relation("OrderSellerConfirmedByUser")
+  /// #58 (I15): every tracking-number edit this person has made as a shop owner — same
+  /// FK-only-existence reasoning as `sellerConfirmedOrders` above.
+  trackingNumberChanges       TrackingNumberChange[]
+  /// #60: every review this person has written as a buyer. Named explicitly because `Review`
+  /// carries a second, unrelated FK to `User` below (`deletedByUser`) — a community admin who
+  /// deleted someone else's review, never the review's own author.
+  reviews                     Review[]                         @relation("ReviewBuyer")
+  /// #60 (L3): every review this person has deleted as a community admin — the mirror of
+  /// `PaymentSlip.rejectedByUser` above: exists only to give `Review.deletedByUserId` a foreign
+  /// key, no endpoint lists "reviews I've deleted" through it (that lives in `audit_log` instead).
+  reviewsDeleted              Review[]                         @relation("ReviewDeletedByUser")
+  /// #63: every dispute this person has opened as a buyer.
+  disputesOpened              Dispute[]                        @relation("DisputeOpenedBy")
+  /// #63: every piece of evidence this person has attached, whether as the buyer opening the
+  /// dispute or the shop responding to it — `DisputeEvidence.party` is what tells the two apart,
+  /// not a second relation here.
+  disputeEvidence             DisputeEvidence[]                @relation("DisputeEvidenceUploadedBy")
+  /// #64: every dispute this person has ever ruled on, as a community admin or super admin — the
+  /// current ruler only (an override overwrites `Dispute.ruledBy`, it doesn't add a second row).
+  disputesRuled               Dispute[]                        @relation("DisputeRuledBy")
+  /// #66: every chat room this person is the buyer side of. Named explicitly because `ChatRoom`
+  /// carries a second FK to `User` below (`shopOwner`) — one person can appear on both sides of
+  /// the table across different rooms (a buyer who also owns a shop).
+  chatRoomsAsBuyer            ChatRoom[]                       @relation("ChatRoomBuyer")
+  /// #66 (K14): every chat room this person is the shop-owner side of — bound to them as a
+  /// `User` and outliving any single `Shop` they have owned (see `ChatRoom`'s comment).
+  chatRoomsAsShopOwner        ChatRoom[]                       @relation("ChatRoomShopOwner")
+  /// #66: every message this person has sent, as either side of a room.
+  chatMessagesSent            ChatMessage[]                    @relation("ChatMessageSender")
+  /// #67: how far this person has read into each room they are a party of.
+  chatRoomReads               ChatRoomRead[]
+  /// §130: people this person has blocked in the buyer↔shop chat, and people who have blocked them.
+  chatBlocksMade              ChatBlock[]                      @relation("ChatBlocker")
+  chatBlocksReceived          ChatBlock[]                      @relation("ChatBlocked")
+  /// §130: reports this person filed about a chat counterpart, and reports filed against them.
+  chatReportsFiled            ChatReport[]                     @relation("ChatReportReporter")
+  chatReportsAgainst          ChatReport[]                     @relation("ChatReportReported")
+  /// §130: messages this person removed from their own view of a room.
+  chatMessagesHidden          ChatMessageHidden[]
+  /// §83: chat pictures this person has uploaded and not yet sent.
+  chatPendingUploads          ChatPendingAttachment[]
+  /// §106: every admin↔shop chat message this person has sent, from either side.
+  shopAdminChatMessagesSent   ShopAdminChatMessage[]
+  /// §106: admin↔shop chat pictures this person has uploaded and not yet sent.
+  shopAdminChatPendingUploads ShopAdminChatPendingAttachment[]
+  /// #69: every notification ever raised for this person — including read and old ones, since
+  /// `NotificationRetentionSweepTask` (L7) is what removes them, not a cascading delete here.
+  notifications               Notification[]
+  /// #75 (§66): every time this person accepted a privacy policy — and since §90 the terms of
+  /// service — one row per document per acceptance.
+  policyAcceptances           PolicyAcceptance[]
+
+  favorites                   Favorite[]
+  followedShops               ShopFollow[]
+  claimedCoupons              UserCouponClaim[]
+
+  @@map("user")
+}
+
+/// Which document a `PolicyAcceptance` row is about (§90).
+///
+/// The terms of service joined the privacy policy behind the one sign-up checkbox, and the evidence
+/// mechanism is identical down to the column list — a version, an instant, an account — so it is a
+/// discriminator on the existing table rather than a second table that would have to be kept in
+/// step with the first on every sign-up path and every erasure.
+enum PolicyDocument {
+  PRIVACY_POLICY
+  TERMS_OF_SERVICE
+
+  @@map("policy_document")
+}
+
+/// One record of a person accepting one version of one document (#75 · §66 · §90): the privacy
+/// policy or, since §90, the terms of service.
+///
+/// A separate table with many rows per user rather than two columns on `User`, for the same reason
+/// `PaymentSlip` is a table rather than `Order.slipUrl`: this is evidence, and evidence that is
+/// overwritten stops being evidence. The whole point of the checkbox §66 decided on is being able
+/// to answer "which wording did this person agree to, and when" — a column that the next
+/// acceptance overwrites cannot answer it for anyone who has accepted twice.
+///
+/// Nothing here is personal data on its own: a version string and an instant. It survives a PDPA
+/// erasure untouched, which is correct — after `AccountErasureService` has anonymised the `User`
+/// row, these rows name nobody, and the record that *an account* accepted a given version is what
+/// makes the acceptance provable at all.
+model PolicyAcceptance {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// The exact version the person was shown, sent by the client and checked against the current
+  /// one before this row is written (see `CURRENT_PRIVACY_POLICY_VERSION` and, for the terms,
+  /// `CURRENT_TERMS_OF_SERVICE_VERSION`). Storing what the server happened to be serving instead
+  /// would record a claim nobody verified.
+  policyVersion String @map("policy_version") @db.VarChar(32)
+
+  /// §90: which document `policyVersion` is a version of. No default — a row that did not say would
+  /// be evidence of agreeing to something unnamed. Every row before §90 was a privacy policy one,
+  /// and the migration fills them in as such.
+  document PolicyDocument
+
+  /// From the `Clock`, like every other instant in this schema.
+  acceptedAt DateTime @map("accepted_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@map("policy_acceptance")
+}
+
+/// A single-use link sent to an email address to prove the person reading it owns it.
+///
+/// One table for every such link rather than one per purpose. Email verification (#25, 24 hours)
+/// and password reset (#27, 1 hour) are the same mechanism down to the column list — issue a
+/// secret, hash it, expire it, spend it once — and the only thing that differs is how long it
+/// lives and what consuming it does.
+///
+/// This is a deliberate exception to N1 ("shared things go to their first caller"). N1 is about
+/// utilities, which are cheap to extract later; this is a schema, and merging two tables after
+/// both have rows is a data migration rather than a refactor. The second caller is not
+/// speculative either: I16 specifies the reset link in detail and #27 is the next ticket but one.
+///
+/// The token itself is never stored — only `HMAC-SHA256(token, VERIFICATION_TOKEN_SECRET)`. A link
+/// in an inbox is a temporary password for the account, so a leaked copy of this table must not be
+/// a set of working links.
+model VerificationToken {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// One of VERIFICATION_PURPOSES. A String column with a TypeScript union over it, for the same
+  /// reason audit_log.action is one: #27 adds a value without an ALTER TYPE migration, and the
+  /// compiler is what stops a typo from reaching the database.
+  purpose String @db.VarChar(32)
+
+  tokenHash String   @unique @map("token_hash") @db.VarChar(64)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  /// Set when the link is spent. A row rather than a delete, so a second click on the same link is
+  /// distinguishable from a link that was never real — the person who clicks twice gets "this link
+  /// has already been used" instead of a generic failure.
+  usedAt DateTime? @map("used_at") @db.Timestamptz(6)
+
+  /// From the Clock, like every other timestamp the system reasons about. This one is load-bearing
+  /// rather than decorative: the "3 requests per hour" limit in I17 is a count of rows with a
+  /// createdAt inside the last hour, so a timestamp from the database instead of the Clock would
+  /// make that limit untestable.
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// The rate-limit count: this user, this purpose, since an hour ago.
+  @@index([userId, purpose, createdAt])
+  /// The sweep that removes spent and expired rows.
+  @@index([expiresAt])
+  @@map("verification_token")
+}
+
+/// One signed-in device: the refresh-token table, and the access token beside it.
+///
+/// Why the access token is stored rather than signed as a JWT: invariant 7 requires that a ban
+/// take effect on the next request, and #24 requires that logout make the *existing* cookie
+/// stop working. Both mean the guard must read the account's current state from the database on
+/// every request — and once that read is happening anyway, a self-contained token buys nothing
+/// and costs the ability to revoke. The token is an opaque random string; what is stored here is
+/// an HMAC of it (see session.service.ts), so a stolen copy of this table cannot be replayed
+/// without the secret from .env.
+///
+/// One row per login, not one per token pair: both tokens are rotated in place, so revoking the
+/// row ends the session however far along it is. I16's "reset the password and every device is
+/// signed out" is then a single updateMany over this user's rows.
+///
+/// Deliberately no IP address and no user agent. They are personal data under PDPA, which means
+/// topic 12 would have to erase them, and nothing in this system has a use for them that would
+/// justify that — a "your devices" screen is not in any spec.
+model Session {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  /// Restrict rather than Cascade: no code path deletes a User, and if one is ever written by
+  /// mistake, the database refusing is the outcome this project wants. A cascade would quietly
+  /// help it succeed.
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// HMAC-SHA256 hex of the opaque token, keyed with ACCESS_TOKEN_SECRET. Unique because it is
+  /// what the guard looks the session up by, and a duplicate would make that lookup ambiguous
+  /// at exactly the wrong moment.
+  accessTokenHash      String   @unique @map("access_token_hash") @db.VarChar(64)
+  accessTokenExpiresAt DateTime @map("access_token_expires_at") @db.Timestamptz(6)
+
+  /// Keyed with REFRESH_TOKEN_SECRET — a different key from the access token, so a token minted
+  /// for one purpose cannot be presented as the other.
+  refreshTokenHash      String   @unique @map("refresh_token_hash") @db.VarChar(64)
+  /// 30 days, and it slides on every refresh (I17). Stored rather than derived so that sliding
+  /// is a write nobody can forget to do.
+  refreshTokenExpiresAt DateTime @map("refresh_token_expires_at") @db.Timestamptz(6)
+
+  /// The refresh token this row rotated away FROM, kept for REFRESH_TOKEN_RACE_GRACE_SECONDS after
+  /// the rotation that replaced it (found missing in /code-review of #24/#25 — DECISIONS.md §72).
+  /// Not @unique: a lookup here only ever needs `findFirst`, never `findUnique`, and reusing this
+  /// column across a chain of rotations before the previous grace window closes would need two
+  /// live values at once, which uniqueness would refuse for no benefit.
+  previousRefreshTokenHash      String?   @map("previous_refresh_token_hash") @db.VarChar(64)
+  /// When the row above stops answering "yes, that was you a moment ago". Compared against, never
+  /// derived from, so a request arriving exactly at the boundary reads unambiguously either side.
+  previousRefreshTokenExpiresAt DateTime? @map("previous_refresh_token_expires_at") @db.Timestamptz(6)
+
+  /// Set by logout and by a password reset (I16). A revoked row is kept rather than deleted so
+  /// that a replayed cookie is distinguishable from one that never existed — and so the sweep
+  /// removes it on its own schedule instead of a request path doing deletions.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  /// Both come from the Clock (seam 2), not from a `now()` default, unlike audit_log.created_at.
+  /// The expiry columns above are Clock arithmetic; if these two came from the database instead,
+  /// a row written during a test would claim to have been created months after it expires. One
+  /// row, one notion of now.
+  createdAt  DateTime @map("created_at") @db.Timestamptz(6)
+  /// Moved forward on every refresh only — not on every authenticated request, which would turn
+  /// a read into a write a few hundred times per page view.
+  lastUsedAt DateTime @map("last_used_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  /// For the sweep that removes dead sessions, which filters on exactly this column.
+  @@index([refreshTokenExpiresAt])
+  /// For `rotate`'s grace-window lookup, which filters on exactly these two columns together.
+  @@index([previousRefreshTokenHash, previousRefreshTokenExpiresAt])
+  @@map("session")
+}
+
+/// What is left of an account after a PDPA erasure (K16).
+///
+/// Deliberately the smallest thing that can answer one question: may this address register again?
+/// There is no name, no phone number, no address and **no email** — only an HMAC of it, keyed with
+/// a pepper that lives in `.env` and never in this database. Someone holding a copy of this table
+/// cannot turn a row back into a person, and cannot test a guess without the pepper.
+///
+/// ⚠️ `ACCOUNT_MARKER_PEPPER` can never be rotated. These digests cannot be recomputed — the
+/// addresses they were made from are gone — so a new pepper means every marker stops matching and
+/// everyone who was ever banned may register again. It also must never be stored in the database,
+/// or erasing the database would erase the only thing that gives these rows meaning.
+///
+/// **Topic 12 writes these rows; #29 only reads them.** The table exists now because the read is
+/// what closes the ban-evasion hole, and a hole that opens when a later ticket is forgotten is a
+/// hole nothing tests for.
+///
+/// No foreign key to User, on purpose: the whole point is that the account is gone.
+model DeletedAccountMarker {
+  id String @id @db.Uuid
+
+  /// HMAC-SHA256(lowercased email, ACCOUNT_MARKER_PEPPER), hex.
+  emailHmac String @unique @map("email_hmac") @db.VarChar(64)
+
+  deletedAt DateTime @map("deleted_at") @db.Timestamptz(6)
+
+  /// The one field that blocks anything. True means this address may not register again (K16).
+  wasBanned Boolean @map("was_banned")
+
+  /// Carried across so that a community admin weighing a new shop application can see it (K16).
+  /// Losing disputes does **not** block registration — it is shown at the Shop.approvalStatus
+  /// gate that already exists, rather than becoming a second punishment.
+  disputeLostCount Int @map("dispute_lost_count")
+
+  @@map("deleted_account_marker")
+}
+
+/// Every action an admin took, written once and never changed.
+///
+/// A community that shops belong to. Reading it is open to everyone (invariant 1: community is a
+/// filter on reads, a wall only on writes); only a super admin creates or edits one (A2), and both
+/// actions land in `audit_log`.
+///
+/// **No delete, soft or hard, in this ticket (#30).** A super admin who mistypes a name edits it;
+/// nothing yet needs to remove a community outright, and every `Shop` will carry a `communityId`
+/// foreign key once topic 4 lands — a delete path built now would have to decide what happens to
+/// those shops before there are any to test against. Deleting a row a live shop points at is not a
+/// decision this ticket can make correctly, so it is left unbuilt rather than guessed at; adding a
+/// soft-delete column later is an additive migration (N1-style), not a breaking one.
+model Community {
+  id String @id @db.Uuid
+
+  name        String @db.VarChar(200)
+  description String @db.Text
+
+  /// From the Clock, like every other timestamp the system reasons about — never `new Date()`.
+  /// Nothing currently computes a deadline from these, but the lint rule in CLAUDE.md draws no
+  /// exception for "not load-bearing yet".
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  admins CommunityAdmin[]
+  shops  Shop[]
+
+  /// §112: names are unique without letter case — `community_name_lower_key ON community (lower(name))`,
+  /// a functional index Prisma cannot express, created in the migration (Prisma ignores it on diff).
+  @@map("community")
+}
+
+/// Who administers which community, and who put them there (#31).
+///
+/// This is a live authorization table, not a record of the past — the two-tier guard `#32` reads
+/// it on every request that matters, checking (1) does a row exist for this user and this
+/// community, and (2) does that community match the target's `Shop.communityId`. Nothing about a
+/// session or an access token remembers admin rights, so a row disappearing here refuses the very
+/// next request — invariant 7's "read from the database every time" applies to this table exactly
+/// as it does to `User.bannedAt`.
+///
+/// `assignedBy` is deliberately **not** a foreign-key relation, the same call `AuditLog.actorUserId`
+/// makes: it exists to answer "who granted this" if there is ever a complaint, not to gate
+/// anything — every assign and revoke already gets its own `audit_log` row for that, and a second
+/// named back-relation on `User` would exist only for a field nothing ever queries through.
+model CommunityAdmin {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  communityId String    @map("community_id") @db.Uuid
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Restrict)
+
+  /// Who called the assign endpoint. Not a relation — see the model doc above.
+  assignedBy String @map("assigned_by") @db.Uuid
+
+  assignedAt DateTime @map("assigned_at") @db.Timestamptz(6)
+
+  /// One person can administer many communities (A2's "หลายชุมชน"), but not the same community
+  /// twice — the service checks for the existing row before writing, and this constraint is the
+  /// backstop against two concurrent assign requests racing past that check. The loser of that
+  /// race gets the same 409 as the check produces: the service maps P2002 back rather than
+  /// letting it surface as a 500, which is what "backstop" has to mean to be worth writing.
+  @@unique([userId, communityId])
+  @@index([communityId])
+  @@map("community_admin")
+}
+
+/// PENDING → APPROVED/REJECTED is #35's transition, enforced there (guard-checked, audit-logged).
+/// A Prisma enum, unlike `AuditAction`'s String-plus-union: only #35 ever writes this column, so
+/// there is no future topic an `ALTER TYPE` migration would couple together — the same reasoning
+/// `UserRole` gives for being a real enum instead.
+///
+/// Deliberately **not** the same column as `Product.moderationStatus` (topic 5) — CLAUDE.md
+/// invariant 6 and this ticket's own AC both call that out by name: a shop being open and a
+/// product being fit to display are different questions asked by different people.
+enum ShopApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// #32 (the two-tier guard) needed a real target to gate and created this table with only what
+/// that required; #34 is topic 4's own first ticket and adds the rest — approval, the partial
+/// unique that makes "1 คน = 1 ร้าน" survive a close-and-reopen, and `closedAt` ahead of #37's
+/// close feature, the same way `Order.frozenAt` is a flag a later ticket sets rather than a
+/// status this ticket would have to keep renaming. `paymentChannels` is #36's column, on a
+/// migration of its own — not here, so this one stays reviewable on its own.
+model Shop {
+  id String @id @db.Uuid
+
+  communityId String    @map("community_id") @db.Uuid
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Restrict)
+
+  /// B2: "1 คน = 1 ร้าน ทั้งระบบ" across the whole platform, not just within a community — but
+  /// H12 requires reopening after a close to work, which a plain `@unique` on this column would
+  /// block forever (the closed row would keep the slot taken). Prisma's schema DSL has no partial
+  /// unique constraint, so the real enforcement is a partial unique index added by hand in this
+  /// ticket's migration SQL: `UNIQUE (owner_id) WHERE closed_at IS NULL`. This column is
+  /// deliberately not marked `@unique` here — that would tell Prisma to also generate the ordinary
+  /// full constraint, which is exactly the thing being avoided.
+  ownerId String @map("owner_id") @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+
+  approvalStatus ShopApprovalStatus @default(PENDING) @map("approval_status")
+
+  /// #73 (N27): the shop's own display name — required from the moment it applies to open, since
+  /// every public list/search/order page that shows a shop needs one to show. Not added later as
+  /// an optional field: N4/K15 already require PDPA erasure to overwrite this column, which only
+  /// makes sense once it reliably holds a real value for every shop, not just the ones an owner
+  /// got around to naming. Not marked `@unique` — two shops sharing a display name disambiguate
+  /// by id/avatar the same way most marketplaces let them, and nothing in spec 4/12 asks for
+  /// uniqueness (a decision cheap to reverse later: adding a unique index needs no data migration).
+  name String @db.VarChar(200)
+
+  /// #73: the shop's own free-text bio, shown on its storefront page. Optional — a shop can open
+  /// before its owner has written one. Empty string from the client collapses to `null` here
+  /// (`ShopService` does the collapsing) so "no description" has exactly one representation.
+  description String? @db.Text
+
+  province String? @db.VarChar(100)
+
+  /// #73: the shop's own storefront photo — #36's shared `UploadedFile`, same convention as
+  /// `PaymentChannel.qrImageFileId` (a single nullable FK, not a list: a shop has at most one).
+  /// `onDelete: SetNull` matches the QR image for the same reason — losing the file row (which
+  /// nothing in this codebase does outside #70/#71's own `deleteBytes`, which never touches the
+  /// row) should not be able to take the shop row down with it.
+  logoFileId String?       @map("logo_file_id") @db.Uuid
+  logoFile   UploadedFile? @relation("ShopLogo", fields: [logoFileId], references: [id], onDelete: SetNull)
+
+  bannerFileId String?       @map("banner_file_id") @db.Uuid
+  bannerFile   UploadedFile? @relation("ShopBanner", fields: [bannerFileId], references: [id], onDelete: SetNull)
+
+  /// §86: a profile change on an already-approved shop waits here for a community admin, while the
+  /// storefront keeps showing `name`/`description`/`logoFileId` above — free text and a photo every
+  /// buyer sees are exactly I13's reason for reviewing product names, and the shop must not vanish
+  /// while it waits. `pendingName` non-null means a text change is waiting (always with
+  /// `pendingDescription`, where "" means "clear the description"); `pendingLogoFileId` non-null
+  /// means a logo change is waiting. `profileChangeRequestedAt` is non-null exactly when either is.
+  /// A shop that was never approved has nothing to wait for — its own approval reviews everything,
+  /// so its edits apply directly.
+  pendingName              String?       @map("pending_name") @db.VarChar(200)
+  pendingDescription       String?       @map("pending_description") @db.Text
+  pendingLogoFileId        String?       @map("pending_logo_file_id") @db.Uuid
+  pendingLogoFile          UploadedFile? @relation("ShopPendingLogo", fields: [pendingLogoFileId], references: [id], onDelete: SetNull)
+  profileChangeRequestedAt DateTime?     @map("profile_change_requested_at") @db.Timestamptz(6)
+
+  /// §91: bumped by every edit a community admin will review — an application's own name, text
+  /// or logo while it waits, and each profile change submitted once approved. Approving or
+  /// rejecting either carries the revision the admin saw; a later edit makes that decision
+  /// STALE_VIEW instead of letting it land on something the admin never looked at.
+  reviewRevision Int @default(0) @map("review_revision")
+
+  /// §86: the last rejected profile change's reason, shown to the owner on `GET /shops/me`. Cleared
+  /// the moment the owner submits a new change.
+  profileChangeRejectionReason String?   @map("profile_change_rejection_reason")
+  profileChangeRejectedAt      DateTime? @map("profile_change_rejected_at") @db.Timestamptz(6)
+
+  /// Set only by a rejection (#35). `audit_log`'s own `reason` column is not an option for
+  /// telling the applicant why: #33 locked reading `audit_log` to super admins only, and the
+  /// applicant is neither a super admin nor this shop's community admin. This is the only place
+  /// the words an admin wrote can reach the person who needs to read them.
+  rejectionReason String? @map("rejection_reason")
+
+  /// Null means open. Soft delete (spec 4/12: "ร้านที่ปิดแล้วเป็น soft delete เก็บออเดอร์และ
+  /// รีวิวไว้") rather than a status value, for the same reason `Order.frozenAt` is a flag: #39
+  /// later needs "closed" to compose with approval and (topic 10) suspension without multiplying
+  /// combinations, and a boolean-shaped flag composes where a single status enum would not.
+  /// #37 owns the endpoint that sets it; this ticket only has to leave the column and the index
+  /// in the right shape for that ticket to use.
+  closedAt DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  /// J2: "ระงับ = ห้ามขายใหม่ ไม่ใช่ห้ามทำของค้าง" — a flag alongside `closedAt`, not merged into
+  /// `approvalStatus`, for the same composability reason: a shop can be APPROVED, open, *and*
+  /// suspended all at once, and every future check (can this shop take a new order? show a new
+  /// product?) reads this column directly rather than inferring it from a combined status.
+  /// #38 owns the endpoints that set and clear it.
+  suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(6)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// #36: how a buyer pays this shop. Several rows per shop (K5's "หลายช่องทางต่อร้านได้") — a
+  /// list, not columns on `Shop` itself, because a shop choosing to offer two bank accounts and
+  /// a PromptPay id is not a shape three nullable column groups can express cleanly.
+  paymentChannels PaymentChannel[]
+  /// #41: everything this shop has ever listed, including soft-deleted rows (L6) — `deletedAt`
+  /// on `Product` is what a query filters on, never this relation's absence.
+  products        Product[]
+  /// #49: every order placed against this shop, across every buyer.
+  orders          Order[]
+  /// #60: every review ever written against this shop, including admin-deleted ones (L3) —
+  /// `deletedAt` on `Review` is what a query filters on, same convention `products` above uses.
+  /// Denormalized off `Order.shopId` (see `Review.shopId`'s own comment) precisely so a shop's
+  /// rating can be aggregated without joining through `Order` every time.
+  reviews         Review[]
+  /// #63: every dispute ever opened against this shop's orders — denormalized off `Order.shopId`
+  /// the same way `reviews` above is.
+  disputes        Dispute[]
+  /// §106: this shop's one conversation with its community's admins, once either side opens it.
+  adminChatRoom   ShopAdminChatRoom?
+  followers       ShopFollow[]
+  coupons         ShopCoupon[]
+
+  @@index([communityId])
+  @@index([ownerId])
+  @@index([logoFileId])
+  @@index([pendingLogoFileId])
+  @@index([profileChangeRequestedAt])
+  @@map("shop")
+}
+
+/// K5: a payment channel is *either* a bank account *or* a PromptPay id, never a row that tries
+/// to be both — a shop wanting one of each saves two rows. A Prisma enum, not a String-plus-union
+/// like `AuditAction`: this column is switched on by this ticket alone, so there is no later
+/// topic an `ALTER TYPE` migration would couple in.
+enum PaymentChannelType {
+  BANK_TRANSFER
+  PROMPTPAY
+
+  @@map("payment_channel_type")
+}
+
+/// #36: a shop's own words for how to pay it — CLAUDE.md invariant 2 in schema form. There is no
+/// `Payment` entity anywhere in this system, and there never will be one: the platform never
+/// holds money, so it has nothing to reconcile against. This table exists only so a buyer can
+/// read what a shop typed in and, if the shop bothered, a QR code it uploaded — **not** to
+/// generate one. Nothing here understands EMVCo or PromptPay's QR payload format; a name, a
+/// number, and a picture is the entire contract.
+///
+/// Every field is personal data on the owner (a bank account belongs to a person, not a shop
+/// entity) and K15 requires it to be overwritable on a PDPA erasure request — nothing here is
+/// `@unique` or otherwise structured in a way that would make writing over it later illegal at
+/// the database level. Topic 12 is the ticket that actually does the overwriting.
+model PaymentChannel {
+  id String @id @db.Uuid
+
+  shopId String @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  type PaymentChannelType
+
+  /// Set together, only when `type` is BANK_TRANSFER — enforced by `PaymentChannelService`, not
+  /// by the database: a `CHECK` that reads a sibling column is more machinery than three nullable
+  /// `VARCHAR`s need, and the write path is the only path (no bulk import, no second writer).
+  bankName          String? @map("bank_name") @db.VarChar(100)
+  bankAccountNumber String? @map("bank_account_number") @db.VarChar(50)
+  bankAccountName   String? @map("bank_account_name") @db.VarChar(100)
+
+  /// Set only when `type` is PROMPTPAY. A phone number or a citizen id, either one — PromptPay
+  /// accepts both and this system has no reason to tell them apart.
+  promptPayId String? @map("prompt_pay_id") @db.VarChar(50)
+
+  /// #36's `UploadedFile` — the shop's own photo of its QR code, optional on either channel type.
+  /// Nullable and unconstrained beyond the FK: a shop can add a channel today and a QR tomorrow.
+  qrImageFileId String?       @map("qr_image_file_id") @db.Uuid
+  qrImageFile   UploadedFile? @relation(fields: [qrImageFileId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@index([shopId])
+  @@index([qrImageFileId])
+  @@map("payment_channel")
+}
+
+/// #36 (N1): the one table behind the one file-storage helper the whole system shares — product
+/// images (topic 5), payment slips (topic 8), dispute evidence (topic 10), review and chat
+/// attachments (topics 9/11) will all point a foreign key at a row here rather than each growing
+/// its own upload machinery. What is shared is storage and validation, not authorization: this
+/// table does not know or care what a file is *of*, because "who may view this" differs by
+/// context (a shop's own QR code today; a slip visible to a shop and its buyer once topic 8
+/// exists) in a way one column on this table could not express honestly. Each feature's own
+/// controller checks who may read a file it owns before ever calling `FileStorageService.read`.
+///
+/// `contentType` is the real, sniffed type (`image/jpeg` or `image/png` today) — never the
+/// `Content-Type` header or filename extension the uploader sent, which either one a client can
+/// lie about freely (K1's "ตรวจชนิดไฟล์จากเนื้อไฟล์จริง"). The bytes themselves live on disk
+/// under `UPLOAD_DIR`, named by this row's own id — never by anything the uploader supplied.
+model UploadedFile {
+  id String @id @db.Uuid
+
+  contentType String @map("content_type") @db.VarChar(50)
+  sizeBytes   Int    @map("size_bytes")
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  paymentChannels          PaymentChannel[]
+  productImages            ProductImage[]
+  paymentSlips             PaymentSlip[]
+  refundSlips              RefundSlip[]
+  reviewImages             ReviewImage[]
+  disputeEvidence          DisputeEvidence[]
+  chatAttachments          ChatMessage[]
+  /// §83: this file while it waits in a chat room, uploaded but not yet sent — at most one row.
+  pendingInChat            ChatPendingAttachment?
+  /// §106: the admin↔shop chat's twins of the two above.
+  shopAdminChatAttachments ShopAdminChatMessage[]
+  pendingInShopAdminChat   ShopAdminChatPendingAttachment?
+  /// #73: shops whose storefront photo this row currently is — at most one in practice
+  /// (`Shop.logoFileId` is a single column), but Prisma still models the FK's other side as a list.
+  shopLogos                Shop[]                          @relation("ShopLogo")
+  /// §86: shops whose *pending* storefront photo this row is, waiting for a community admin.
+  shopPendingLogos         Shop[]                          @relation("ShopPendingLogo")
+  shopBanners              Shop[]                          @relation("ShopBanner")
+  shippingSlips            ShippingSlip[]
+
+  @@map("uploaded_file")
+}
+
+/// #41: what a shop sells — name, images, description, category. **No stock and no price on this
+/// model at all** (C1, locked in CLAUDE.md): those live on `ProductVariant`. Getting this backwards
+/// is the mistake CLAUDE.md warns reaches into topics 7 and 8 — stock reservation and the
+/// conditional-update stock cut both key off `ProductVariant.stock`, so a price or stock column
+/// here would leave two places disagreeing about which one is real.
+///
+/// `communityId` is deliberately absent (A6) — it is reachable through `shop.communityId`, and
+/// `CommunityScopeGuard` (#32) was built to resolve a target's community however a feature needs
+/// to, precisely so features like this one never have to denormalise it just to be gateable.
+///
+/// `moderationStatus` started bare in #41 (PENDING/APPROVED/REJECTED only) the same way
+/// `Shop.approvalStatus` started bare in #32 before #35 filled in the reject flow — #43 is the
+/// ticket that adds a machine-readable rejection category (H4), the same way #35 added
+/// `Shop.rejectionReason`. `shopPublishStatus` is #42's own addition: invariant 6's other
+/// visibility layer, and #42 is also the ticket that combines all three layers (shop publish ·
+/// moderation · shop live status, the last one via `LIVE_SHOP_FILTER`) at one point for the
+/// public list — see `src/product/product-visibility.ts`.
+model Product {
+  id String @id @db.Uuid
+
+  shopId String @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  name        String @db.VarChar(200)
+  description String @db.Text
+
+  categoryId String   @map("category_id") @db.Uuid
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  moderationStatus ProductModerationStatus @default(PENDING) @map("moderation_status")
+
+  /// §91: bumped by every edit that sends the product back for review. A reviewer's approve or
+  /// reject carries the revision their screen showed, and is refused (STALE_VIEW) if an edit has
+  /// landed since — otherwise the decision could fall on wording the reviewer never saw. A counter
+  /// rather than `updatedAt`: two edits inside one millisecond must still count as two.
+  reviewRevision Int @default(0) @map("review_revision")
+
+  /// #43 (H4): set only alongside `moderationStatus: REJECTED`. A closed set, not free text,
+  /// because **topics 7 and 10 branch on it** — a `PROHIBITED` rejection cancels an unpaid order
+  /// and refunds stock, or freezes a paid one; a `NEEDS_FIX` rejection changes nothing about any
+  /// order in flight. Code that only had a human-written reason string would have no reliable way
+  /// to tell those two apart. ⚠️ Topics 7 and 10 are the tickets that actually read this column
+  /// and act on it — nothing here does yet.
+  rejectionCategory ProductRejectionCategory? @map("rejection_category")
+
+  /// The human-readable half of a rejection — additional to `rejectionCategory`, never instead of
+  /// it. Shown to the seller (spec 5/12 user story 17) so they know what to fix, the same way
+  /// `Shop.rejectionReason` reads to a rejected shop applicant.
+  rejectionReason String? @map("rejection_reason")
+
+  /// #42 (invariant 6's first visibility layer): the shop's own choice to show or hide a listing
+  /// it already owns, independent of admin moderation. Defaults `PUBLISHED` — #41 already let a
+  /// shop create a product expecting it to go live the moment moderation approves it, and
+  /// defaulting to hidden would silently break that without anything in #41's own AC asking for
+  /// an extra step.
+  shopPublishStatus ShopPublishStatus @default(PUBLISHED) @map("shop_publish_status")
+
+  /// Soft delete (L6): `OrderItem` and `StockReservation` (topic 7) will reference a variant of
+  /// this product by id, and a hard `DELETE` here would break every one of those rows' history.
+  /// No endpoint sets this yet — #41's own AC lists this as a schema requirement ahead of the
+  /// ticket that actually deletes products, the same way `Shop.suspendedAt` existed in the schema
+  /// before #38 wrote the endpoint that sets it.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  images   ProductImage[]
+  variants ProductVariant[]
+  favorites Favorite[]
+
+  @@index([shopId])
+  @@index([categoryId])
+  @@map("product")
+}
+
+/// PENDING → APPROVED/REJECTED, same shape as `ShopApprovalStatus` and the same reasoning for
+/// being a real Prisma enum rather than the String-plus-union `AuditAction` pattern: only #43
+/// ever writes this column.
+enum ProductModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+
+  @@map("product_moderation_status")
+}
+
+/// #42 (invariant 6's first visibility layer). Only #41's own owner ever writes this — a shop
+/// hiding or re-showing a listing it already owns, entirely independent of moderation.
+enum ShopPublishStatus {
+  PUBLISHED
+  UNPUBLISHED
+
+  @@map("shop_publish_status")
+}
+
+/// #43 (H4): the two kinds of "no" a community admin can give a product, chosen because each one
+/// means something different downstream (see `Product.rejectionCategory`'s own comment).
+enum ProductRejectionCategory {
+  /// รูปไม่ชัด รายละเอียดไม่ครบ — an order in flight is unaffected.
+  NEEDS_FIX
+  /// ผิดกฎหมาย ของต้องห้าม — an unpaid order tied to this product is cancelled with its stock
+  /// refunded; a paid one is frozen instead (topics 7 and 10).
+  PROHIBITED
+
+  @@map("product_rejection_category")
+}
+
+/// #41 (C4): one of a product's up to 10 photos, in upload order. A join row rather than an
+/// array of file ids on `Product` — every other file this system stores does the same thing
+/// (`PaymentChannel.qrImageFileId`), and a product needs *several* of them, which only a row per
+/// image can express with an ordinary foreign key.
+///
+/// Points at `#36`'s `UploadedFile`, never writes a file itself — this ticket's own AC is explicit
+/// that using a second file-handling code path here would be the mistake N1 exists to prevent.
+model ProductImage {
+  id String @id @db.Uuid
+
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  fileId String       @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// §109: when an approval of the product first covered this photo. Null = nobody has reviewed it
+  /// yet, so only the shop's owner and the admins who may review it can open it; a photo approved
+  /// once stays public while its product is re-reviewed (an old order's link must keep working).
+  approvedAt DateTime? @map("approved_at") @db.Timestamptz(6)
+
+  @@index([productId])
+  @@index([fileId])
+  @@map("product_image")
+}
+
+/// C1 (locked): stock and price live here, not on `Product` — see that model's own comment for
+/// why getting this backwards is expensive. `name` is the option label a shop types freely
+/// ("สีแดง / ไซส์ M") — invariant 6 flags this specific field as the reason a *name* edit has to
+/// go back to PENDING review (#44): it is free text a shop could otherwise use to smuggle a
+/// forbidden item past a reviewer who only read the product's own name.
+model ProductVariant {
+  id String @id @db.Uuid
+
+  productId String  @map("product_id") @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  name String @db.VarChar(100)
+
+  /// K3's money convention: integer satang, never a float, always paired with a currency —
+  /// `CLAUDE.md` locks บาทเดียว (THB only) for this whole platform, but the column exists anyway
+  /// rather than assuming it in code, the same reasoning every other locked-convention column in
+  /// this schema follows.
+  priceAmountMinor Int    @map("price_amount_minor")
+  currency         String @default("THB") @db.VarChar(3)
+
+  stock Int @default(0)
+
+  /// Soft delete (L6), same reasoning as `Product.deletedAt` — no endpoint sets this yet either;
+  /// #44 owns "ลบ variant" (invariant 6: takes effect immediately, no re-review, unlike a name edit).
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  cartItems         CartItem[]
+  orderItems        OrderItem[]
+  stockReservations StockReservation[]
+
+  @@index([productId])
+  @@map("product_variant")
+}
+
+/// #48 (K4): one cart per person, server-side. No cart for a signed-out visitor and therefore no
+/// merge-on-login logic — invariant 1 requires a session to add anything here in the first place,
+/// so "whose cart was this before they signed in" is a question that cannot arise.
+///
+/// Lazily created on the first `POST /cart/items`, not at registration — nothing else in this
+/// system creates a row for every user up front, and most carts would sit empty forever.
+model Cart {
+  id String @id @db.Uuid
+
+  userId String @unique @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  items CartItem[]
+
+  @@map("cart")
+}
+
+/// One line of a cart: which variant, how many. **Never a frozen price** — K4 decided the cart shows
+/// the live price always, and `priceAtPurchase` only exists once an `Order` snapshots it (invariant 5
+/// starts at the order, not here).
+///
+/// §111: the three `*WhenAdded` columns record what the buyer saw the last time they added this line
+/// or changed its quantity — never what they pay. The price lets the cart say "the price changed
+/// from X" (K4's warning); the names are what the cart shows once the product stops being orderable,
+/// because by then the live name may be one moderation has not passed (a rename sends a product
+/// back to review, invariant 6). They are refreshed only from an orderable variant, so they hold
+/// text that had passed review — except lines already in a cart when the column was added, which took
+/// that day's names (production starts from an empty database, §87 · §111). Removing an item is a genuine `DELETE`, not a soft delete: a
+/// cart has no evidentiary purpose the way an order does, so there is nothing invariant 5 needs to
+/// keep — the same reasoning `ProductImage` rows are hard-deleted by #41's `removeImage`.
+///
+/// `@@unique([cartId, variantId])` — adding a variant already in the cart increases its quantity
+/// rather than creating a second row for the same thing.
+model CartItem {
+  id String @id @db.Uuid
+
+  cartId String @map("cart_id") @db.Uuid
+  cart   Cart   @relation(fields: [cartId], references: [id], onDelete: Restrict)
+
+  variantId String         @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  quantity Int @default(1)
+
+  priceAmountMinorWhenAdded Int    @map("price_amount_minor_when_added")
+  productNameWhenAdded      String @map("product_name_when_added") @db.VarChar(200)
+  variantNameWhenAdded      String @map("variant_name_when_added") @db.VarChar(100)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([cartId, variantId])
+  @@index([cartId])
+  @@map("cart_item")
+}
+
+/// This is the first table in the system and therefore the template for the rest: UUIDv7 id,
+/// TIMESTAMPTZ timestamps, snake_case columns mapped from camelCase fields.
+///
+/// Append-only by construction. There is no update path and no delete path anywhere in the
+/// codebase, which is what makes it evidence rather than a report — a log an admin can edit
+/// says nothing about what an admin did. N4 reinforces this from the other direction: PDPA
+/// erasure overwrites a person's own data but leaves these rows alone, because they record
+/// what an *administrator* did, not who the subject was.
+///
+/// That is also why there is no free-form JSON column here. A metadata bag would accumulate
+/// names, addresses and phone numbers, and then erasure would have to search through it — in
+/// a table erasure is specifically not allowed to rewrite. Anything worth recording gets a
+/// named column and a moment's thought about whether it is personal data.
+model AuditLog {
+  id String @id @db.Uuid
+
+  /// Who did it. Null means the system itself — the three-clock sweep, for instance — which
+  /// is more honest than inventing a synthetic admin account to point at.
+  ///
+  /// Deliberately NOT a foreign key to User: User does not exist until topic 2, and even once
+  /// it does, a cascade or a restrict here would tie the permanence of the evidence to the
+  /// lifetime of the account it describes. PDPA erasure anonymises User rows rather than
+  /// deleting them (invariant 5), so the id stays resolvable in practice; if a row ever did
+  /// go missing, an audit entry naming an unknown actor is still better than no entry.
+  actorUserId String? @map("actor_user_id") @db.Uuid
+
+  /// One of AUDIT_ACTIONS in src/audit/audit-action.ts. A String column rather than a Prisma
+  /// enum so that later topics add actions without an ALTER TYPE migration; the union type is
+  /// what stops a typo, and it stops it at compile time.
+  action String @db.VarChar(64)
+
+  /// What it was done to: one of AUDIT_TARGET_TYPES, plus the row's id. Null id goes with
+  /// target type SYSTEM, which has no single row.
+  targetType String  @map("target_type") @db.VarChar(32)
+  targetId   String? @map("target_id") @db.Uuid
+
+  /// Which community this action was about — a second, orthogonal dimension from targetType /
+  /// targetId, not a replacement for it. Invariant 1 makes the community the wall for every
+  /// admin action, so "which community" is a question the log has to answer on its own, without
+  /// joining out to Shop/Product/Order/Dispute/Review by target type first. Null means a
+  /// platform-level action with no single community (creating a community itself records its
+  /// own id here; banning a user or erasing an account does not).
+  ///
+  /// Not a foreign key, for the same reason actorUserId is not one: this column's job is to
+  /// outlive the row it names, not to be validated against it (see DECISIONS.md N22).
+  ///
+  /// ⚠️ Added by #33's code review (2026-09-22, N22's deferred gap). Every future writer must
+  /// pass it — see CommunityScopeGuard's resolver for how to get a communityId from a target.
+  /// Topics 4/5/9/10's existing writers (shop, product, order, dispute, review) predate this
+  /// column and still write `communityId: null` implicitly; PROGRESS.md tracks backfilling them
+  /// when `/code-review` reaches each topic, not in this diff, per CLAUDE.md's "touch only the
+  /// current topic's files".
+  communityId String? @map("community_id") @db.Uuid
+
+  /// Why, for the actions ACTIONS_REQUIRING_REASON lists. Enforced by the writer rather than
+  /// by a NOT NULL, because "required for some actions" is not something a column can say, and
+  /// a NOT NULL would be satisfied by an empty string.
+  reason String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// Ordering and filtering for the read endpoint in #33. Composite with id (not a bare column)
+  /// because every list here orders by id and Postgres needs the leading equality column plus
+  /// the sort column in one index to avoid a separate sort step.
+  ///
+  /// createdAt and (targetType, targetId) lost their indexes in the same migration that added
+  /// this one: #33's code review found no query in src/ that filters on either — id alone
+  /// already gives chronological order (UUIDv7), and nothing reads by target yet. An unused
+  /// index still costs a write on every insert, which this table takes on every admin action.
+  @@index([action, id])
+  @@index([actorUserId, id])
+  /// §112: the audit-log filters by subject.
+  @@index([targetId, id])
+  @@index([communityId, id])
+  @@map("audit_log")
+}
+
+/// #69 (I17): one row per event a user should learn about — always in-app; whether the same
+/// event is *also* worth an email is decided per row's `type` by the one writer
+/// (`NotificationService.notify`), never by a per-user preference (no notification-preferences
+/// feature exists — #69's own AC forbids adding one).
+model Notification {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// One of NOTIFICATION_TYPES in src/notification/notification-type.ts. A String column rather
+  /// than a Prisma enum, for the same reason `AuditLog.action` is one (see that column's own
+  /// comment) — this list already spans topics 4/5/7/8/10/11, and a DB enum would need an
+  /// `ALTER TYPE` migration from every one of them.
+  type String @db.VarChar(64)
+
+  /// Plain Thai text, composed once by the writer and stored as-is — the same "ข้อความธรรมดาที่
+  /// ถูกต้องพอ" restraint #69's own AC gives email bodies, applied here too rather than building a
+  /// per-type rendering pipeline nobody asked for.
+  message String @db.Text
+
+  /// What this notification is about, for a frontend "ไปที่..." link — same shape as
+  /// `AuditLog.targetType`/`targetId`. Both null for a notification with no single target (none
+  /// exist yet, but the shape stays consistent with audit_log rather than special-cased away).
+  targetType String? @map("target_type") @db.VarChar(32)
+  targetId   String? @map("target_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// Null means unread. Set once, by "อ่านแล้วทั้งหมด" — #69's AC has no per-item read endpoint,
+  /// only mark-all, so this is the only writer of a non-null value.
+  readAt DateTime? @map("read_at") @db.Timestamptz(6)
+
+  /// #69 (L7): rows older than 180 days are deleted by `NotificationRetentionSweepTask`, through
+  /// the one sweep point (M5) — never a second scheduler.
+  @@index([userId, createdAt])
+  /// Powers "how many unread" without scanning every row of an active user's history.
+  @@index([userId, readAt])
+  /// §113: `markReadForEveryone` (§108) clears one target's notices across every recipient — no
+  /// `userId` to start from, so without this it read the whole table each time an admin opened
+  /// a shop's room.
+  @@index([targetId])
+  @@map("notification")
+}
+
+/// C2 · K6 · L5: the platform's one flat set of product categories, super-admin-owned. A table
+/// rather than an enum in code — adding a category must not require a deploy — and deliberately
+/// single-level: no `parentId`, because a tree nobody asked for is a tree every query has to
+/// carry the weight of forever. See #40's ticket report for the two questions this closed.
+model Category {
+  id String @id @db.Uuid
+
+  name String @unique @db.VarChar(100)
+
+  /// Retiring a category sets this rather than deleting the row: existing `Product`s and the
+  /// `OrderItem` snapshots that will one day reference a category by name (invariant 5 — history
+  /// must not change) still point at this id. `false` means a shop can no longer *choose* it for
+  /// a new or edited product; it says nothing about products that already have it.
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  /// #41: every product ever filed under this category. Never used to block retiring a category
+  /// (`isActive: false`) — see this model's own comment on what that flag does and does not mean.
+  products Product[]
+
+  @@map("category")
+}
+
+/// #58 (F1/K9/L5): the platform's set of couriers a shop may pick from when it ships an order —
+/// same shape and same reasoning as `Category` (super-admin-owned; `isActive` retires a row an
+/// old order still points at, rather than deleting it). One row is the catch-all "อื่นๆ" —
+/// `isOther` marks it rather than comparing on `name`, so a super admin renaming that row later
+/// never breaks the check that lets a shop pair it with a free-text `Order.carrierNameOther`
+/// (K9). Never settable through `POST`/`PATCH` (see `ShippingCarrierService`'s own comment) —
+/// only the seed ever writes `isOther: true`, and the partial unique index below (same
+/// hand-written technique `Shop.ownerId`'s comment explains) keeps there from ever being a second
+/// one even by a direct database edit.
+model ShippingCarrier {
+  id String @id @db.Uuid
+
+  name String @unique @db.VarChar(100)
+
+  isOther Boolean @default(false) @map("is_other")
+
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  orders Order[]
+
+  @@map("shipping_carrier")
+}
+
+/// #46: the province → district → subdistrict reference table, seeded from a public MIT-licensed
+/// dataset (source, version and license recorded in docs/DECISIONS.md — see that entry before
+/// touching this data). Read-only in this codebase: there is no endpoint that writes here, and
+/// the app never modifies these rows. `sourceCode` is the upstream numeric administrative code
+/// (kept, not used as the primary key — see the note on `id` in CLAUDE.md), so a future re-import
+/// after a real boundary change can match existing rows by code rather than by Thai name, which
+/// is not stable spelling-to-spelling across data revisions.
+model Province {
+  id String @id @db.Uuid
+
+  /// The upstream dataset's own province id, e.g. 1 for Bangkok. Not globally meaningful outside
+  /// that dataset, but stable across its releases — see this model's own doc comment.
+  sourceCode Int @unique @map("source_code")
+
+  nameTh String @map("name_th") @db.VarChar(100)
+
+  districts District[]
+
+  @@map("province")
+}
+
+model District {
+  id String @id @db.Uuid
+
+  sourceCode Int @unique @map("source_code")
+
+  nameTh String @map("name_th") @db.VarChar(100)
+
+  provinceId String   @map("province_id") @db.Uuid
+  province   Province @relation(fields: [provinceId], references: [id], onDelete: Restrict)
+
+  subdistricts Subdistrict[]
+
+  @@index([provinceId])
+  @@map("district")
+}
+
+model Subdistrict {
+  id String @id @db.Uuid
+
+  sourceCode Int @unique @map("source_code")
+
+  nameTh String @map("name_th") @db.VarChar(100)
+
+  districtId String   @map("district_id") @db.Uuid
+  district   District @relation(fields: [districtId], references: [id], onDelete: Restrict)
+
+  /// #46 · K7: a subdistrict can genuinely have more than one postal code, so this is a child
+  /// table rather than a `postalCode` column here — a 1:1 design would need a data migration the
+  /// day a real many-postal-code subdistrict is added. The specific dataset this ticket seeds
+  /// from happens to record exactly one code per subdistrict (checked, not assumed — see
+  /// docs/DECISIONS.md); the schema does not assume that stays true.
+  postalCodes SubdistrictPostalCode[]
+
+  @@index([districtId])
+  @@map("subdistrict")
+}
+
+model SubdistrictPostalCode {
+  id String @id @db.Uuid
+
+  subdistrictId String      @map("subdistrict_id") @db.Uuid
+  subdistrict   Subdistrict @relation(fields: [subdistrictId], references: [id], onDelete: Restrict)
+
+  postalCode String @map("postal_code") @db.VarChar(5)
+
+  /// The reverse side of `Address.subdistrictPostalCode` (#47) — never queried from here in this
+  /// codebase, but Prisma requires the array field to exist on both ends of the relation.
+  addresses Address[]
+
+  @@unique([subdistrictId, postalCode])
+  @@map("subdistrict_postal_code")
+}
+
+/// #47: a buyer's saved delivery address. Several per person, soft-deleted, with at most one
+/// marked `isDefault` — see below for why each of those is shaped the way it is.
+///
+/// **Recipient name and phone live here, not on `User`** (a locked value per CLAUDE.md — spec
+/// 6/12's own reasoning: "คนเดียวส่งของให้แม่ที่บ้านและให้ตัวเองที่หอ ต้องใช้คนละชื่อผู้รับและคนละ
+/// เบอร์"). A delivery name is a property of a delivery, not of an account.
+///
+/// **Every field here is something invariant 5's future order snapshot can copy verbatim** — that
+/// is this ticket's own AC, and it is why the street-level detail is broken into named columns
+/// (`houseNumber`, `villageNumber`, `alley`, `road`) instead of one free-text blob: a blob would
+/// still be copyable, but the AC also asks for "แยกฟิลด์แบบมาตรฐานเต็มชุด", and a courier reads a
+/// Thai address by exactly these parts. `subdistrictPostalCodeId` is the one field a snapshot
+/// cannot copy directly — topic 7 reads the province/district/subdistrict/postal-code text through
+/// the relation once, at order creation, and copies *that* text onto the order the same way
+/// `OrderItem.productNameAtPurchase` copies a product's name today.
+model Address {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  recipientName String @map("recipient_name") @db.VarChar(100)
+  phone         String @db.VarChar(15)
+
+  houseNumber   String  @map("house_number") @db.VarChar(50)
+  /// หมู่ที่ — common outside municipal areas, absent inside them. Optional for that reason, not
+  /// because it was inconvenient to ask for.
+  villageNumber String? @map("village_number") @db.VarChar(50)
+  alley         String? @db.VarChar(100)
+  road          String? @db.VarChar(100)
+
+  /// **Not free text (this ticket's own AC, in bold): a real row in #46's reference tables.**
+  /// Points at the postal code, not the subdistrict — K7 already settled that a subdistrict can
+  /// have more than one, so the *specific* code this address uses has to be part of what is
+  /// chosen, not inferred. The relation still reaches subdistrict → district → province from
+  /// here, so nothing about "which postal code" and "which subdistrict" can ever disagree: they
+  /// are read off the same row, not typed in twice and left to drift apart the way two free-text
+  /// fields would (this ticket's own AC calls that failure out by name).
+  subdistrictPostalCodeId String                @map("subdistrict_postal_code_id") @db.Uuid
+  subdistrictPostalCode   SubdistrictPostalCode @relation(fields: [subdistrictPostalCodeId], references: [id], onDelete: Restrict)
+
+  /// At most one **live** default per person — enforced by a partial unique index added by hand
+  /// in this ticket's migration SQL (`UNIQUE (user_id) WHERE is_default AND deleted_at IS NULL`,
+  /// the same technique `Shop.ownerId`'s comment explains), because Prisma's schema DSL cannot
+  /// express a `WHERE` clause on a constraint. Excluding soft-deleted rows from the constraint is
+  /// what lets a deleted default free its slot rather than permanently occupying it.
+  isDefault Boolean @default(false) @map("is_default")
+
+  /// Soft delete (spec 6/12: "ลบ = soft delete — ออเดอร์เก่าอ้างถึงอยู่"). A deleted address is
+  /// excluded from every query this module runs except the ones that already know its id from an
+  /// old order's own snapshot — and even those read the snapshot, never this row, per invariant 5.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([subdistrictPostalCodeId])
+  @@map("address")
+}
+
+/// #49: the named states of D1's checkout path. Chosen to describe what's actually happening
+/// (spec 5/12's own AC gives the Thai: รอร้านใส่ค่าส่ง → รอผู้ซื้อโอน → ส่งสลิปแล้ว → จ่ายแล้ว →
+/// ส่งของแล้ว → จบ), not the platform's own verbs — there is no "PAYMENT_CONFIRMED" here because
+/// the platform never confirms anything (invariant 2); the shop does.
+///
+/// `FROZEN` and "a dispute is open" are deliberately absent — see `Order.frozenAt`'s own comment
+/// for why (I6/H3). `REFUND_ORDERED`/`REFUNDED` are real values here despite belonging to topics
+/// 8/10's own flow, because #53's sweep and topic 10's ruling both need somewhere to put an order
+/// that already changed hands financially — and `CANCELLED_AFTER_PAYMENT` is deliberately not a
+/// value at all (H5): once a slip is in, the path forward is refund, never cancellation.
+enum OrderStatus {
+  AWAITING_SHIPPING_QUOTE
+  AWAITING_PAYMENT
+  PAYMENT_SUBMITTED
+  PAID
+  SHIPPED
+  COMPLETED
+  CANCELLED
+  REFUND_ORDERED
+  REFUNDED
+
+  @@map("order_status")
+}
+
+/// #52: which side cancelled — recorded so the other side can see who and (via `Order.cancelReason`)
+/// why. Only the two actors this ticket's manual cancellation can ever be — a sweep auto-cancel
+/// (#53) or an admin dispute decision (topic 10) each has its own reasoning to record later and
+/// is not shoehorned into this enum ahead of the ticket that actually needs it.
+enum OrderCancelledBy {
+  BUYER
+  SHOP
+  /// #62 (I4): a community admin (or super admin) terminating a frozen order that hadn't paid
+  /// yet — the system's own decision (H5's line), never the admin picking a destination, but the
+  /// admin is still the one who triggered it, so `null` (the shape #52's sweep auto-cancels use)
+  /// would misrepresent this as having no actor at all.
+  ADMIN
+
+  @@map("order_cancelled_by")
+}
+
+/// #49 (invariant 4): a checkout always splits into one `Order` per shop — never a multi-shop
+/// order — because each shop is paid directly into its own account (invariant 2) and a single
+/// receipt cannot represent two unrelated bank transfers.
+model Order {
+  id String @id @db.Uuid
+
+  buyerId String @map("buyer_id") @db.Uuid
+  buyer   User   @relation("OrderBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+
+  shopId String @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  status OrderStatus @default(AWAITING_SHIPPING_QUOTE)
+
+  /// #55 (🔒 locked field names — K5's own reasoning restated for this exact pair): **never**
+  /// `paidAt`/`isPaid`. The platform never holds money (invariant 2) and never learns whether a
+  /// transfer actually happened — it only learns that the shop clicked a button saying so. A name
+  /// like `paidAt` would assert something the system has no way to know; these two names assert
+  /// only the one fact that's actually true. Set together, once, the moment K8's stock cut
+  /// succeeds — never independently, and never on a `PAID` order reached any other way (there is
+  /// no other way; #55 is the only writer of `status: 'PAID'`).
+  sellerConfirmedAt DateTime? @map("seller_confirmed_at") @db.Timestamptz(6)
+
+  sellerConfirmedBy     String? @map("seller_confirmed_by") @db.Uuid
+  sellerConfirmedByUser User?   @relation("OrderSellerConfirmedByUser", fields: [sellerConfirmedBy], references: [id], onDelete: Restrict)
+
+  /// I6/H3: a flag layered on top of `status`, not a status value, specifically so unfreezing
+  /// (topic 10) can restore the exact status the order was in and let that status's own clock
+  /// restart at its full duration — a value like `FROZEN` would have overwritten the status it
+  /// froze, losing both. No endpoint in this ticket sets it; topic 10 does. Added here, ahead of
+  /// its own writer, the same way `Shop.suspendedAt`/`Product.deletedAt` existed in the schema
+  /// before the ticket that set them.
+  frozenAt DateTime? @map("frozen_at") @db.Timestamptz(6)
+
+  /// #61: **not** a single "why" column — freezing can stack (seller banned *and* the same
+  /// order's product later ruled `PROHIBITED`), and unfreezing removes one reason at a time. If
+  /// this were one enum column, the second freeze would overwrite the first and the order would
+  /// come back unfrozen the moment either single cause was lifted, even with the other cause
+  /// still live. `frozenAt` itself is still the single source of truth for "is this order
+  /// frozen right now" — true whenever this relation is non-empty, false the instant the last
+  /// row is removed (`OrderFreezeService` keeps the two in lockstep; nothing else writes either).
+  freezeReasons OrderFreezeReason[]
+
+  /// Invariant 4 (🔒 locked): **must stay nullable**. The buyer doesn't know the total when they
+  /// place the order — the shop sets the shipping fee afterward (#51) — so this is null from
+  /// creation until that happens, never computed early and never defaulted to the items' subtotal.
+  totalAmountMinor Int?   @map("total_amount_minor")
+  currency         String @default("THB") @db.VarChar(3)
+
+  /// #51 (H1, 🔒 locked once set): the shipping fee itself, entered once by the shop and never
+  /// editable afterward — a second attempt is rejected, not silently overwritten, because the
+  /// buyer may already be transferring money by then and a changed number would mean paying a
+  /// different amount than what was agreed. `totalAmountMinor` above is items subtotal + this
+  /// value; kept as its own column (not only ever inside the sum) so the frontend can show
+  /// "ค่าส่ง: X บาท" without re-deriving it by subtracting every item back out.
+  shippingAmountMinor Int? @map("shipping_amount_minor")
+
+  /// #51: the moment clock 2 (#53 — "ผู้ซื้อโอน + อัปสลิป ภายใน 24 ชม." นับจากร้านใส่ค่าส่ง, not
+  /// from checkout) starts counting from. Written here, the first time the shop quotes shipping.
+  /// Topic 8's slip-rejection flow (I2) restarts this same 24h window and will overwrite this
+  /// field when it does — this ticket only ever writes it the once.
+  paymentWindowStartedAt DateTime? @map("payment_window_started_at") @db.Timestamptz(6)
+
+  /// #61: where clock 1 (#53 — 24h to quote shipping) counts from — set once, at checkout, to
+  /// the same instant as `createdAt`. A separate column from `createdAt` exists solely so H3 has
+  /// somewhere to write a fresh start time when an `AWAITING_SHIPPING_QUOTE` order unfreezes:
+  /// `createdAt` records when the order was actually placed and must never move, but clocks 2 and
+  /// 3 already have their own "window started at" column (`paymentWindowStartedAt`,
+  /// `paymentConfirmationWindowStartedAt`) for exactly this reason — clock 1 needed the same
+  /// treatment the moment freezing could pause it. Nullable only because rows created before this
+  /// migration have no value; the backfill in this ticket's own migration sets it equal to
+  /// `createdAt` for every existing row, so in practice it is never null going forward.
+  shippingQuoteWindowStartedAt DateTime? @map("shipping_quote_window_started_at") @db.Timestamptz(6)
+
+  /// #53: whether clock 1's "6 hours left" warning has already fired for this order — set once,
+  /// by the warning sweep task, and never reset (`AWAITING_SHIPPING_QUOTE` only ever happens
+  /// once per order, so there is no later round for this to be stale against).
+  ///
+  /// #61: that "never reset" reasoning no longer fully holds — freezing and then unfreezing an
+  /// `AWAITING_SHIPPING_QUOTE` order gives clock 1 a fresh window (H3), and this flag must be
+  /// cleared alongside `shippingQuoteWindowStartedAt` or the fresh window's own "6 hours left"
+  /// warning would never fire. `OrderFreezeService` clears both together on unfreeze.
+  shippingQuoteWarningSentAt DateTime? @map("shipping_quote_warning_sent_at") @db.Timestamptz(6)
+
+  /// #53: same as `shippingQuoteWarningSentAt`, for clock 2. Unlike that one, `AWAITING_PAYMENT`
+  /// *can* recur — topic 8's slip-rejection flow (I2) sends the order back here and restarts the
+  /// 24h window — so that same flow must also null this out, the same way it must overwrite
+  /// `paymentWindowStartedAt`. This ticket only ever writes it once; it does not know about I2.
+  paymentWarningSentAt DateTime? @map("payment_warning_sent_at") @db.Timestamptz(6)
+
+  /// #65 (K11): where the shop's own 7-day "upload a refund slip" clock counts from — set once,
+  /// by whichever of the three paths first moves an order to `REFUND_ORDERED` (#57's clock-3
+  /// timeout, #62's admin termination of a frozen paid order, #64's `BUYER_WINS` ruling), and
+  /// reset to a fresh window by `OrderFreezeService.clearFreezeAndResetClock` on unfreeze — the
+  /// same H3 treatment clocks 1–3 already get, this ticket's own column to add as promised in
+  /// that method's comment.
+  refundOrderedAt DateTime? @map("refund_ordered_at") @db.Timestamptz(6)
+
+  /// §118: when the 7-day refund-slip clock counts from
+  refundSlipWindowStartedAt DateTime? @map("refund_slip_window_started_at") @db.Timestamptz(6)
+
+  /// #65 (K11): set once, the instant the 7-day refund-slip clock above is swept past with still
+  /// no `RefundSlip` on the order — the one-time cue that increments the shop owner's
+  /// `disputeLostCount` (reusing that same counter rather than inventing a second "badge", the
+  /// AC's own "ใช้เลขเดิม" framing). §85: cleared again only when a `BUYER_WINS` ruling restarts
+  /// the refund loop (the shop is ordered to refund afresh, so a second failure is a second
+  /// penalty) — otherwise never.
+  refundOverdueFlaggedAt DateTime? @map("refund_overdue_flagged_at") @db.Timestamptz(6)
+
+  /// §85 (I9b): set when a super admin overrides a `BUYER_WINS` ruling to `SHOP_WINS` while this
+  /// order is still `REFUND_ORDERED`. The loop itself keeps running (money may already have moved,
+  /// and this platform never claims to undo that — invariant 2), but K11's penalty no longer
+  /// applies: the corrected ruling says no refund was owed. Cleared if a later override swings the
+  /// ruling back to `BUYER_WINS`.
+  refundPenaltyWaivedAt DateTime? @map("refund_penalty_waived_at") @db.Timestamptz(6)
+
+  /// #65 (H7): the moment the *first* `RefundSlip` landed on this order — where the buyer's own
+  /// 7-day "confirm you got it back, or the cron will assume you did" clock counts from. Distinct
+  /// from `refundOrderedAt` above on purpose: K11 and H7 are two different 7-day windows over two
+  /// different spans that merely share a magnitude, not a start time.
+  refundSlipFirstUploadedAt DateTime? @map("refund_slip_first_uploaded_at") @db.Timestamptz(6)
+
+  /// §85 (H7/H3): where the buyer's 7-day confirm window actually counts from — the first refund
+  /// slip, then reset to a fresh full window whenever the order is unfrozen, the same H3 treatment
+  /// clocks 1–3 and K11 get. `refundSlipFirstUploadedAt` above stays the fixed fact ("a slip
+  /// exists"); this is the clock. Before §85 the sweep instead added the order's *whole* frozen
+  /// history onto the fixed start, which also counted freezes that ended before any slip existed.
+  refundConfirmWindowStartedAt DateTime? @map("refund_confirm_window_started_at") @db.Timestamptz(6)
+
+  /// #65 (L9): the buyer's own receiving account, entered only once this order reaches
+  /// `REFUND_ORDERED` — never collected ahead of time, never stored on `User` (most buyers are
+  /// never refunded; keeping it there would mean holding everyone's bank details for no reason).
+  /// Same discriminated shape `PaymentChannel` already uses for a shop's own channels (`type`
+  /// picks which field group is live), reused here rather than invented fresh. **Wiped back to
+  /// null the instant this order reaches `REFUNDED`** — both by `RefundService.confirmReceived`
+  /// (H6) and by the H7 auto-close sweep, the only two writers of that transition — and again by
+  /// G3's PDPA anonymize job once topic 12 builds it (added to that ticket's own list of columns
+  /// to overwrite). Visible to the order's own buyer and shop always; to a community admin only
+  /// through break-glass while a dispute on this order is open (I5), the same as every other
+  /// column `OrderDto` already carries.
+  refundAccountType       PaymentChannelType? @map("refund_account_type")
+  refundBankName          String?             @map("refund_bank_name") @db.VarChar(100)
+  refundBankAccountNumber String?             @map("refund_bank_account_number") @db.VarChar(50)
+  refundBankAccountName   String?             @map("refund_bank_account_name") @db.VarChar(100)
+  refundPromptPayId       String?             @map("refund_prompt_pay_id") @db.VarChar(50)
+
+  /// #53 (I3b): the moment clock 3 — "ร้านยืนยันเงินเข้า ภายใน 3 วัน", counted from the first
+  /// slip of the *current payment round*, not the order's first slip ever — starts counting
+  /// from. Nothing writes this yet: topic 8 sets it when a slip is uploaded into an order with no
+  /// slip already active for this round, and overwrites it if I2's slip-rejection starts a new
+  /// round. Added here, ahead of its own writer, the same way `frozenAt` (#49) and
+  /// `paymentWindowStartedAt` (#51) were.
+  paymentConfirmationWindowStartedAt DateTime? @map("payment_confirmation_window_started_at") @db.Timestamptz(6)
+
+  /// #53: same dedup flag as the other two, for clock 3 — reset by topic 8 alongside
+  /// `paymentConfirmationWindowStartedAt` whenever I3b's "current round" restarts.
+  paymentConfirmationWarningSentAt DateTime? @map("payment_confirmation_warning_sent_at") @db.Timestamptz(6)
+
+  /// #52 (D4/H11): who cancelled — set by the two manual-cancel actions and, since §81, by the
+  /// buyer rejecting the shipping fee (#51/E2b: `BUYER`, with the reason copied into
+  /// `cancelReason`; the `ShippingFeeRejection` row still exists as the statistic). Null only when
+  /// nobody chose it: a sweep auto-cancel (#53) has no human actor to name here at all. Read
+  /// together with `cancelReason` below.
+  cancelledBy OrderCancelledBy? @map("cancelled_by")
+
+  /// #52: required when the shop cancels (H11), optional when the buyer does (D4 names no such
+  /// requirement) — see `OrderService`'s own comment on why the two sides differ. Shown to
+  /// *the other party* on the same order (AC: "ผู้ซื้อเห็นเหตุผลของร้าน และกลับกัน") through the
+  /// same `GET /orders/:id` both sides already share — no separate endpoint for this.
+  cancelReason String? @map("cancel_reason")
+
+  /// §85: when the order became `CANCELLED`, by any path. A buyer who had uploaded a slip may still
+  /// dispute a cancelled order (the shop may have rejected a real transfer), but only for 15 days
+  /// after this — before §85 an order that never shipped had no dispute deadline at all.
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz(6)
+
+  /// Address snapshot (invariant 5): copied once, here, at checkout — never re-read from
+  /// `Address`, whose row can change or be soft-deleted afterward. Field-for-field the same shape
+  /// `AddressDto` (#47) already exposes, because that DTO's own comment says it exists exactly
+  /// for this copy.
+  recipientName   String  @map("recipient_name") @db.VarChar(100)
+  phone           String  @db.VarChar(15)
+  houseNumber     String  @map("house_number") @db.VarChar(50)
+  villageNumber   String? @map("village_number") @db.VarChar(50)
+  alley           String? @db.VarChar(100)
+  road            String? @db.VarChar(100)
+  subdistrictName String  @map("subdistrict_name") @db.VarChar(100)
+  districtName    String  @map("district_name") @db.VarChar(100)
+  provinceName    String  @map("province_name") @db.VarChar(100)
+  postalCode      String  @map("postal_code") @db.VarChar(5)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  discountAmountMinor Int              @default(0) @map("discount_amount_minor")
+  couponId            String?          @map("coupon_id") @db.Uuid
+  coupon              ShopCoupon?      @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode          String?          @map("coupon_code") @db.VarChar(50)
+  usedCouponClaim     UserCouponClaim?
+
+  items OrderItem[]
+
+  /// #51 (E2b): set only if the buyer rejects the shipping fee — a rejection cancels the order
+  /// immediately, a terminal state, so an order can never have more than one.
+  shippingFeeRejection ShippingFeeRejection?
+
+  /// #54 (I3): every slip the buyer has ever uploaded for this order, oldest first by `createdAt`
+  /// — never just the latest one. See `PaymentSlip`'s own comment for why a single column on
+  /// this model was ruled out.
+  paymentSlips PaymentSlip[]
+
+  /// #65 (K11): every slip the *shop* has uploaded proving it sent a refund back — same
+  /// multi-row shape as `paymentSlips` above and the same reasoning (evidence, never overwritten).
+  refundSlips RefundSlip[]
+
+  /// #58 (F1): the moment the shop clicked "ship" — set once, never any other way. Two clocks
+  /// that live *outside* the three-clock sweep start counting from here and nowhere else: D5b's
+  /// 15-day window to open a dispute, and H10's PDPA "cleared enough to erase" cutoff — both are
+  /// topic 10/12's own tickets to read this column, not this one's to compute.
+  shippedAt DateTime? @map("shipped_at") @db.Timestamptz(6)
+
+  /// #58 (L5): which row of `ShippingCarrier` the shop picked — never free text, so a frontend can
+  /// trust every row here enough to build a tracking-page link from it (F1). Restrict, not
+  /// SetNull: a carrier a super admin later retires (`isActive: false`) must stay resolvable on
+  /// every past order that already points at it, the same reasoning `Product.categoryId` follows.
+  shippingCarrierId String?          @map("shipping_carrier_id") @db.Uuid
+  shippingCarrier   ShippingCarrier? @relation(fields: [shippingCarrierId], references: [id], onDelete: Restrict)
+
+  /// K9: set only when `shippingCarrierId` points at the `isOther` row — the shop's own free-text
+  /// name for a courier not on the list. Null for every other carrier; `ShippingService` is the
+  /// only writer, and only ever writes this together with `shippingCarrierId`.
+  carrierNameOther String? @map("carrier_name_other") @db.VarChar(100)
+
+  /// §85 (invariant 5): the carrier's name as it read the moment the shop shipped — a super admin
+  /// renaming the `ShippingCarrier` row later must not rewrite what an old order says it was sent
+  /// with. `shippingCarrierId` stays for "which carrier", this for "what it was called then".
+  shippingCarrierNameAtShipment String? @map("shipping_carrier_name_at_shipment") @db.VarChar(100)
+
+  /// I15/F1: mandatory the moment the shop ships (never null while `status` is `SHIPPED` or later)
+  /// and editable after that — F1 calls it a dispute's own evidence, so every edit is kept in
+  /// `TrackingNumberChange` rather than overwritten in place. The very first value, set by
+  /// shipping itself, is not logged there: `shippedAt` plus this column already answers "what was
+  /// it originally", so that table only ever grows on a genuine edit. Locked the moment a buyer
+  /// marks the order received (#59) — `ShippingService.updateTrackingNumber` gates on
+  /// `status: 'SHIPPED'`, a status a completed order has already left.
+  trackingNumber String? @map("tracking_number") @db.VarChar(100)
+
+  /// #58 (I15): every edit to `trackingNumber` after the shop shipped, oldest first.
+  trackingNumberChanges TrackingNumberChange[]
+
+  /// #59 (D5): set the instant — and only the instant — the buyer clicks "ได้รับของแล้ว" on their
+  /// own order. **Nothing else ever writes this column** — D5 deliberately has no auto-close, so
+  /// an order can sit at `SHIPPED` forever with this staying null; there is no cron anywhere that
+  /// would set it on a timer. Topic 9's own review ticket (#60) and topic 10's dispute-window
+  /// ticket both read it once they exist: F2 gates writing a review at all on this being
+  /// non-null, and D5b's 15-day dispute window counts from `shippedAt`, not this column.
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  /// #60 (F2): at most one — `Review.orderId` is `@unique`, enforced at the database, not just
+  /// checked before insert. `?` because most orders have none: a review is optional even once
+  /// completed.
+  review Review?
+
+  /// #63: every dispute ever opened on this order, oldest first — K13 allows reopening after one
+  /// closes, so this is a history, never a single nullable relation the way `review` is.
+  disputes Dispute[]
+
+  /// #63 (N3/D5b): cumulative seconds this order has spent frozen, summed across every freeze
+  /// episode that has ended — written only by `OrderFreezeService.clearFreezeAndResetClock`, the
+  /// single place `frozenAt` transitions back to null. D5b's 15-day "open a dispute" deadline is
+  /// counted from `shippedAt` but must not count time the order spent frozen (H3's own reasoning
+  /// applied to a fixed deadline instead of a resettable window this time): a buyer frozen out by
+  /// a seller ban unrelated to their own dispute must not lose dispute-filing days to it. Not
+  /// used for clocks 1–3 — those already get a fresh full window on unfreeze (H3) and have no use
+  /// for a running total.
+  frozenDurationSeconds Int @default(0) @map("frozen_duration_seconds")
+
+  /// §116: seconds the dispute window was paused by platform outages
+  disputeWindowPausedSeconds Int @default(0) @map("dispute_window_paused_seconds")
+
+  /// #66: messages that happened to reference this order — optional context a chat participant
+  /// attached, never a requirement (F4). Most orders have none.
+  chatMessages ChatMessage[]
+
+  /// Shipping receipts / postal slips attached by the shop when dispatching
+  shippingSlips ShippingSlip[]
+
+  @@index([buyerId])
+  @@index([shopId])
+  @@index([couponId])
+  @@index([shippingCarrierId])
+  @@index([status])
+  @@map("order")
+}
+
+/// #63 (K13): one row per dispute ever opened on an order — reopening after one closes is
+/// allowed, so this is never limited to one row per order the way `Review` is. `closedAt` null
+/// means open; **a partial unique index (hand-written SQL, Prisma's schema DSL has no support —
+/// same pattern as `ShippingCarrier.isOther`) enforces "at most one OPEN dispute per order" at
+/// the database**, not just in `DisputeService`, because that is the one invariant this ticket's
+/// own AC calls out as unsafe to trust to an application-level check alone under a race.
+model Dispute {
+  id String @id @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  /// Denormalized off `Order.shopId`, the same reasoning and the same precedent `Review.shopId`
+  /// already established (see that column's own comment): #64's community-admin guard needs
+  /// "which community is this dispute's shop in" and shouldn't have to join through `Order` to
+  /// get it.
+  shopId String @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  /// Always the order's own buyer — #63's own AC: only the buyer opens a dispute, the shop only
+  /// responds. Named `openedBy`, not `buyerId`, so a reader never has to cross-check it against
+  /// `Order.buyerId` to know whose action this was; it is redundant with that column on purpose,
+  /// the same restraint `Review.shopId` above already established.
+  openedBy     String @map("opened_by") @db.Uuid
+  openedByUser User   @relation("DisputeOpenedBy", fields: [openedBy], references: [id], onDelete: Restrict)
+
+  /// The buyer's own account of the problem. Required and non-blank — `OpenDisputeDto` enforces
+  /// a minimum length the same way every other free-text admin/dispute reason in this system does.
+  reason String @db.Text
+
+  /// Set once, the shop's own account — #63 keeps this to a single response (no history of
+  /// edits), the same minimalism #60 chose for "no image-deletion endpoint": the AC asks for a
+  /// response, not a running back-and-forth, and #64's own ruling is where more evidence than a
+  /// single written response is expected to matter (via `DisputeEvidence`, both sides, unlimited
+  /// rounds up to the file cap).
+  shopResponse String?   @map("shop_response") @db.Text
+  respondedAt  DateTime? @map("responded_at") @db.Timestamptz(6)
+
+  /// null while open. **Not** simply "set the moment #64 rules" — H6/H7 (#65) are what this
+  /// column is actually waiting on for a `BUYER_WINS` verdict: ruling only closes it right away
+  /// for `SHOP_WINS`, where nothing further is pending (order status never moved, there is
+  /// nothing left to track). `BUYER_WINS` moves the order to `REFUND_ORDERED` and leaves this
+  /// column null — the refund loop is now the open question, not the verdict — until the buyer
+  /// confirms receipt (H6) or #65's own 7-day cron gives up waiting and assumes they did (H7).
+  /// This is what makes H7 "the thing that revokes admin PII visibility" true: if ruling itself
+  /// always closed the dispute, H7 would have nothing left to revoke. An override (I9b) never
+  /// touches this column either way — the dispute's open/closed state tracks the refund loop's
+  /// real-world progress, not which verdict currently stands, so overwriting the verdict here
+  /// leaves whatever open/closed state was already in flight untouched.
+  closedAt DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  /// #64 (K12): the **current** verdict — null until ruled. A super admin's override (I9b)
+  /// overwrites this in place rather than keeping a second "original ruling" row: `audit_log`'s
+  /// `DISPUTE_RULED`/`DISPUTE_RULING_OVERRIDDEN` entries are the history of what changed and who
+  /// changed it (the same "row is live state, audit_log is the ledger" split `OrderFreezeReason`
+  /// already established) — this column only ever needs to answer "what's true right now".
+  verdict DisputeVerdict? @map("verdict")
+
+  /// K12: shown to **both** the buyer and the shop — I9 cut the appeal process, which makes this
+  /// the only explanation either side ever gets. Overwritten in place on an override, same as
+  /// `verdict`.
+  rulingReason String? @map("ruling_reason") @db.Text
+
+  /// Whoever made the *current* ruling — the original community admin, or the super admin who
+  /// overrode it. Not the same person as `openedByUser` (the buyer) or the shop's owner.
+  ruledBy     String? @map("ruled_by") @db.Uuid
+  ruledByUser User?   @relation("DisputeRuledBy", fields: [ruledBy], references: [id], onDelete: Restrict)
+
+  ruledAt DateTime? @map("ruled_at") @db.Timestamptz(6)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  evidence DisputeEvidence[]
+
+  @@index([orderId])
+  @@map("dispute")
+}
+
+/// #64 (K12): the closed set of ways a dispute can be decided — `BUYER_WINS`/`SHOP_WINS`, never
+/// a partial or split ruling, because the two outcomes wired to it (`REFUND_ORDERED` vs. leaving
+/// `Order.status` untouched, I6) are themselves binary.
+enum DisputeVerdict {
+  BUYER_WINS
+  SHOP_WINS
+
+  @@map("dispute_verdict")
+}
+
+/// #63: which side attached a given piece of evidence — stored explicitly rather than derived by
+/// comparing `uploadedBy` against `Order.buyerId`/`Shop.ownerId` at read time, so listing a
+/// dispute's evidence never needs that extra join just to label whose exhibit is whose.
+enum DisputeParty {
+  BUYER
+  SHOP
+
+  @@map("dispute_party")
+}
+
+/// #63 (I17): up to 10 per dispute, enforced by `DisputeService` counting existing rows before
+/// insert (K3 — validated at the edge, the same shape #60 uses for review images' cap of 5).
+/// jpg/png only, through `FileStorageService.storeImage` — that service's own comment already
+/// names "dispute evidence (topic 10)" as an anticipated caller, re-encoded to strip EXIF the
+/// same way a review photo or a payment slip is.
+model DisputeEvidence {
+  id String @id @db.Uuid
+
+  disputeId String  @map("dispute_id") @db.Uuid
+  dispute   Dispute @relation(fields: [disputeId], references: [id], onDelete: Restrict)
+
+  party DisputeParty
+
+  uploadedBy     String @map("uploaded_by") @db.Uuid
+  uploadedByUser User   @relation("DisputeEvidenceUploadedBy", fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  fileId String       @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([disputeId])
+  @@map("dispute_evidence")
+}
+
+/// #58 (I15): one row per edit to `Order.trackingNumber` after the shop has shipped — never one
+/// per upload the way `PaymentSlip` is, because there is exactly one tracking number live on an
+/// order at a time; this table exists purely so an earlier value is never simply gone the moment
+/// a newer one is typed in. F1's own reasoning is explicit: a shop swapping the number after a
+/// dispute opens must be something the buyer (and later, an admin) can see happened, not a silent
+/// overwrite.
+/// #61 (I6/H2): the closed set of things that can freeze an order — one mechanism, four possible
+/// causes, "ห้ามเขียนโค้ดชุดที่สอง" per this ticket's own AC. `PRODUCT_PROHIBITED` is the one
+/// reason that never applies to an order still in `StockReservationService`'s reserving statuses
+/// (H4 cancels those instead of freezing them) — see `OrderFreezeService.handleProhibitedProduct`.
+enum FreezeReason {
+  SELLER_BANNED
+  SHOP_SUSPENDED
+  BUYER_BANNED
+  PRODUCT_PROHIBITED
+
+  @@map("freeze_reason")
+}
+
+/// #61: one row per (order, cause) currently in effect — see `Order.freezeReasons`'s own comment
+/// for why this is a list and not a column. Rows are deleted, never soft-deleted or marked
+/// resolved: once a cause is lifted it has nothing left to say, and "was this order ever frozen"
+/// is already answered by `audit_log`'s `ORDER_FROZEN`/`ORDER_UNFROZEN` entries, which is the
+/// actual history record (invariant 5 territory — this table is live state, not a ledger).
+model OrderFreezeReason {
+  id String @id @db.Uuid
+
+  orderId String       @map("order_id") @db.Uuid
+  order   Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  reason  FreezeReason
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// A plain (not partial) unique: unlike `Dispute.orderId` in #63, there is no "only counts
+  /// while open" concept here — the row's mere existence *is* the reason being in effect, and
+  /// `OrderFreezeService.addReason` upserts on this key so re-freezing for a cause already in
+  /// effect (e.g. a product rejected `PROHIBITED` twice) is a no-op, not a duplicate row.
+  @@unique([orderId, reason])
+  @@index([orderId])
+  @@map("order_freeze_reason")
+}
+
+model TrackingNumberChange {
+  id String @id @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  previousTrackingNumber String @map("previous_tracking_number") @db.VarChar(100)
+  newTrackingNumber      String @map("new_tracking_number") @db.VarChar(100)
+
+  /// Always the shop's own owner today — only `ShippingCarrierController`'s shop-side route ever
+  /// writes this row. Kept as a real column (rather than inferred) the same way
+  /// `PaymentSlip.rejectedByUserId` is: not surfaced on the buyer-facing DTO (there is only ever
+  /// one possible "who"), but real evidence if a dispute ever needs to name who typed it.
+  changedBy     String @map("changed_by") @db.Uuid
+  changedByUser User   @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+
+  changedAt DateTime @map("changed_at") @db.Timestamptz(6)
+
+  @@index([orderId])
+  @@map("tracking_number_change")
+}
+
+/// Invariant 5, one line per variant ordered. `onDelete: Restrict` on `variantId` is never
+/// exercised in practice — `ProductVariant` is only ever soft-deleted (#44) — but the FK still
+/// has to point somewhere real for `variant`'s own foreign key to resolve at order time.
+model OrderItem {
+  id String @id @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  variantId String         @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  /// Invariant 5, named exactly as `CLAUDE.md`'s own sentence: "`OrderItem` เก็บ
+  /// `priceAtPurchase` และ `productNameAtPurchase` ของตัวเอง" — a past receipt reads these, never
+  /// `Product`/`ProductVariant`, so an edit (#44) or a price change afterward cannot alter it.
+  productNameAtPurchase String @map("product_name_at_purchase") @db.VarChar(200)
+
+  /// Not named in that sentence, but the identical reasoning applied to the identical row: a
+  /// variant's name is exactly as free-form and as editable (#44) as a product's — "ไซส์ M" —
+  /// leaving it un-snapshotted would let a past receipt's option label change under the buyer the
+  /// same way an un-snapshotted product name would, which is the one thing invariant 5 exists to
+  /// prevent.
+  variantNameAtPurchase String @map("variant_name_at_purchase") @db.VarChar(100)
+
+  priceAtPurchase Int    @map("price_at_purchase")
+  currency        String @default("THB") @db.VarChar(3)
+
+  quantity Int
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  stockReservation StockReservation?
+
+  @@index([orderId])
+  @@map("order_item")
+}
+
+/// #50 (invariant 3): one reservation per `OrderItem`, created in the same transaction as the
+/// order itself. Deliberately carries **no `expiresAt` and no `releasedAt`** — the AC forbids a
+/// single short-lived expiry computed once at creation ("ห้ามคำนวณวันหมดอายุครั้งเดียวตอนสร้าง
+/// ออเดอร์"), and a reservation has to survive all three clocks (~13 days) plus an unbounded
+/// freeze (H3) on top. Instead, whether a reservation still "counts" is computed live from its
+/// order's own `status` every time (`StockReservationService`'s own comment has the exact set) —
+/// which means unfreezing, or any future ticket moving an order to `CANCELLED`, releases the
+/// reservation for free: there is no separate release step for #52/#53 to remember to call, and
+/// nothing here can ever drift out of sync with the order it belongs to.
+model StockReservation {
+  id String @id @db.Uuid
+
+  orderItemId String    @unique @map("order_item_id") @db.Uuid
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  /// Denormalized off `orderItem.variantId` on purpose — every availability check queries by
+  /// variant first ("how much of *this* is left"), and indexing through `OrderItem` would mean
+  /// joining a table this query has no other reason to touch.
+  variantId String         @map("variant_id") @db.Uuid
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  quantity Int
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([variantId])
+  @@map("stock_reservation")
+}
+
+/// #51 (E2b): the buyer's stated reason for rejecting a shop's shipping fee, one row per order —
+/// never more than one, since a rejection cancels the order right away (a terminal state). Its
+/// own table rather than a free-text column on `Order` or a line in `audit_log`, because the
+/// AC asks for statistics ("ร้านไหนโดนปฏิเสธบ่อยผิดปกติ") — a `GROUP BY` across many rows joined
+/// back to `Shop` through `Order`, which only works if the reason lives somewhere shaped for it.
+model ShippingFeeRejection {
+  id String @id @db.Uuid
+
+  orderId String @unique @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  reason String
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@map("shipping_fee_rejection")
+}
+
+/// #54 (E1/I3): one row per upload, never overwritten and never deleted — a buyer can re-upload
+/// as many times as they like while the shop hasn't confirmed, and every earlier attempt stays
+/// on record as evidence. **A single `slipUrl` column on `Order` was ruled out on purpose**: it
+/// can only ever point at the latest file, so an overwrite would destroy the proof of what was
+/// uploaded before, exactly the thing I3 exists to keep.
+model PaymentSlip {
+  id String @id @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  /// jpg/png/pdf, sanitized and stored through `FileStorageService.storeDocument` (#36/#54) —
+  /// never a second, order-specific file-writing path. Not exposed in `PaymentSlipDto`, the same
+  /// way `PaymentChannel.qrImageFileId` isn't: the id is an internal detail of how
+  /// `GET .../payment-slips/:slipId/file` resolves the bytes, not something a caller needs.
+  fileId String       @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  /// #56 (I2): set together, only when the shop rejects this exact slip — wrong amount, wrong
+  /// account, unreadable. This ticket only prepares the columns; #56 owns the endpoint that
+  /// writes them. Null means "not rejected", not "not yet reviewed" — there is no third state on
+  /// the slip itself, since #55's `Order.sellerConfirmedAt`/`sellerConfirmedBy` is what
+  /// "accepted" looks like, on the order, not here.
+  rejectedAt       DateTime? @map("rejected_at") @db.Timestamptz(6)
+  rejectionReason  String?   @map("rejection_reason")
+  rejectedByUserId String?   @map("rejected_by_user_id") @db.Uuid
+  rejectedByUser   User?     @relation(fields: [rejectedByUserId], references: [id], onDelete: Restrict)
+
+  /// Code review of topic 8 (§82): set on every *other* not-yet-rejected slip of the order at the
+  /// moment the shop rejects one — rejecting a slip ends the payment round (I2 sends the order
+  /// back to `AWAITING_PAYMENT`), and the buyer's other re-uploads from that round go with it.
+  /// A slip with both this and `rejectedAt` null is therefore exactly "a slip of the current
+  /// round" — I3b's own definition — and the only kind `OrderService.rejectSlip` accepts. Before
+  /// this column those leftovers stayed "not rejected" forever: the shop could reject one of them
+  /// later to knock back a round it had nothing to do with, and the buyer's page showed them as
+  /// still pending. An explicit mark rather than comparing `createdAt` against the round's start
+  /// time, so which round a slip belongs to never depends on two timestamps being distinct.
+  /// Never set on a slip the shop rejected itself, so the rejection count (`rejectedAt` not null)
+  /// stays one row per rejection.
+  supersededAt DateTime? @map("superseded_at") @db.Timestamptz(6)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([orderId])
+  @@map("payment_slip")
+}
+
+/// #65 (K11): one refund proof the *shop* has uploaded for an order it owes money back on — the
+/// mirror image of `PaymentSlip`, same reasoning for a separate multi-row table instead of a
+/// single column (kept forever, re-uploads add rows rather than replace one). No reject flow
+/// exists here (unlike `PaymentSlip`'s I2) — the buyer either confirms receipt (H6) or the loop
+/// times out and assumes they did (H7); a buyer who genuinely never got the money is "เรื่องที่ 14"
+/// in the parent spec, not this ticket's to build.
+model RefundSlip {
+  id String @id @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  /// jpg/png/pdf via `FileStorageService.storeDocument`, same as `PaymentSlip.fileId` — not
+  /// exposed in `RefundSlipDto`, same restraint that column's own comment documents.
+  fileId String       @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([orderId])
+  @@map("refund_slip")
+}
+
+/// Shipping receipt / postal slip uploaded by shop as proof of dispatch
+model ShippingSlip {
+  id String @id @db.Uuid
+
+  orderId String @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  fileId String       @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([orderId])
+  @@map("shipping_slip")
+}
+
+/// #60 (K10/I18/L3): the buyer's one review of one order. Rating is mandatory, text and photos
+/// are not — that split is this ticket's own AC, not a technical default.
+///
+/// **No author name anywhere on this model, and none is ever computed from elsewhere.** `User`
+/// (see that model's own comment) deliberately has no name field — a delivery name lives on
+/// `Address` instead, one property of a delivery, not of an account — and inventing a name here
+/// just for a review byline would contradict that decision and give PDPA erasure (G3) something
+/// new to redact for no reason. A review reads as anonymous by construction: `buyerId` exists
+/// only to enforce "one review per order, only its own buyer may write it" and is never exposed
+/// on `ReviewDto`, the same restraint `PaymentSlip.rejectedByUserId` already uses. This is also
+/// what "ออกแบบให้ anonymize ชื่อผู้เขียนได้ตอน PDPA — ห้ามปิดทาง" (#60's own AC) ends up meaning in
+/// practice: there is nothing identity-shaped here for a later erasure job to fail to reach.
+///
+/// **`shopId` is denormalized off `order.shopId`**, the identical call `StockReservation.variantId`
+/// already makes off `OrderItem.variantId` (see that model's comment for the full reasoning): every
+/// read this ticket needs — "this shop's reviews", "this shop's average rating" — filters by shop
+/// first, and joining through `Order` for every one of those queries is indirection nothing here
+/// benefits from. It can never drift from `order.shopId`: the only writer (`ReviewService.create`)
+/// sets both from the same fetched order in the same transaction.
+///
+/// **Deleted by a community admin (L3) is a flag, not a row `DELETE`** — same soft-delete shape as
+/// `Product`/`ProductVariant`: a rating average that could retroactively lose its evidence trail
+/// the moment a row disappears is not evidence at all. `deletedAt: null` is what every average and
+/// every public list filters on; the row and its `rating` stay in the table forever.
+model Review {
+  id String @id @db.Uuid
+
+  orderId String @unique @map("order_id") @db.Uuid
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  buyerId String @map("buyer_id") @db.Uuid
+  buyer   User   @relation("ReviewBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+
+  shopId String @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  /// 1–5, bounds enforced by `CreateReviewDto` (K3 — validate at the edge), not a database CHECK
+  /// — no table in this schema uses one, and a bounded `Int` here follows that same convention
+  /// rather than introducing a new one for just this column.
+  rating Int
+
+  text String? @db.Text
+
+  /// I18: the edit window is **7 days from `createdAt`, and `createdAt` never moves** — an edit
+  /// updates `rating`/`text`/`updatedAt` but deliberately leaves this column alone, because I18's
+  /// own reasoning is explicit that the deadline must count from "the day the review was written",
+  /// not restart on every edit (which would let a review stay editable forever, one edit at a time).
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @map("updated_at") @db.Timestamptz(6)
+
+  /// L3: set only when a community admin removes a rule-breaking review. `audit_log` already
+  /// records *that* it happened and *who* did it (`REVIEW_DELETED`, already reserved in
+  /// `src/audit/audit-action.ts` since before this ticket); `deletedByUserId`/`deletionReason`
+  /// exist here too, the same duplication `PaymentSlip.rejectedByUserId`/`rejectionReason`
+  /// already accepts, because a moderation action worth undoing needs to be readable straight off
+  /// the row it acted on, not reconstructed from a log query every time.
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId String?   @map("deleted_by_user_id") @db.Uuid
+  deletedByUser   User?     @relation("ReviewDeletedByUser", fields: [deletedByUserId], references: [id], onDelete: Restrict)
+  deletionReason  String?   @map("deletion_reason")
+
+  images ReviewImage[]
+
+  @@index([shopId])
+  @@index([buyerId])
+  @@map("review")
+}
+
+/// #60 (K10): one of a review's up to 5 photos, in upload order — the identical shape
+/// `ProductImage` already uses for the identical reason (several photos need a row each, not an
+/// array of file ids). Points at #36's `UploadedFile`, never writes a file itself.
+model ReviewImage {
+  id String @id @db.Uuid
+
+  reviewId String @map("review_id") @db.Uuid
+  review   Review @relation(fields: [reviewId], references: [id], onDelete: Restrict)
+
+  fileId String       @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([reviewId])
+  @@map("review_image")
+}
+
+/// #66 (F4 · K14): one room per (buyer × shop owner), the only WebSocket surface in this system.
+///
+/// ⚠️ **Bound to the owner's `User`, not to `Shop`.** `docs/DECISIONS.md` K14 overturned #12's
+/// original body (which had this unique on `(buyerId, shopId)`) specifically because closing and
+/// reopening a shop under H12 would otherwise destroy every past conversation, and J1 depends on
+/// there being a room left to use: a buyer who bought from a shop that has since closed still
+/// needs to reach its owner about a `SHIPPED` order. Resolving "which owner" happens once, when a
+/// room is opened (read off `Shop.ownerId` at that moment) — after that this row is the only
+/// source of truth, and nothing here re-derives it from a currently-live `Shop`.
+///
+/// No `orderId` anywhere on this model, on purpose: F4 forbids a schema that forces every
+/// conversation to belong to one order, because a room exists before any order does and outlives
+/// every order placed inside it.
+model ChatRoom {
+  id String @id @db.Uuid
+
+  buyerId String @map("buyer_id") @db.Uuid
+  buyer   User   @relation("ChatRoomBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+
+  shopOwnerUserId String @map("shop_owner_user_id") @db.Uuid
+  shopOwner       User   @relation("ChatRoomShopOwner", fields: [shopOwnerUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// §108: when the room last had a new message — its creation until then. The inbox is ordered by
+  /// this, newest first (the owner's choice), so a room an old conversation just woke up in rises
+  /// to the top instead of sinking below every room opened since.
+  lastActivityAt DateTime @map("last_activity_at") @db.Timestamptz(6)
+
+  messages       ChatMessage[]
+  reads          ChatRoomRead[]
+  pendingUploads ChatPendingAttachment[]
+  reports        ChatReport[]
+
+  @@unique([buyerId, shopOwnerUserId])
+  /// §83: `listRooms` filters on either party (`buyerId OR shopOwnerUserId`). The unique key above
+  /// already serves the `buyerId` side as its leading column; nothing served the shop-owner side,
+  /// so every shop owner's room list was a sequential scan of the whole table.
+  @@index([shopOwnerUserId])
+  /// §108: each party's inbox, newest activity first.
+  @@index([buyerId, lastActivityAt(sort: Desc), id(sort: Desc)])
+  @@index([shopOwnerUserId, lastActivityAt(sort: Desc), id(sort: Desc)])
+  @@map("chat_room")
+}
+
+/// #66: every message a room has ever carried, written to this table before it is ever
+/// broadcast over the socket — a party who is offline when a message arrives reads it here the
+/// next time they connect, which is the entire reason `runSweep`-style fire-and-forget delivery
+/// was never on the table.
+///
+/// `orderId` is nullable and plays no part in this table's identity (F4) — referencing an order
+/// is optional context a client may attach, never a requirement to send a message. `onDelete:
+/// SetNull` rather than `Restrict`: an order is never deleted (invariant 5 / PDPA erasure only
+/// overwrites), but a message referencing one must not become impossible to insert or read
+/// because of a relation this feature does not depend on for correctness.
+///
+/// `content` is a plain column deliberately left mutable at the database level even though
+/// nothing in #66 writes to it twice — topic 12's PDPA erasure (H8) overwrites individual
+/// messages by id, which only works if the column was never designed to be append-only.
+///
+/// #67 (K17): `fileId` is nullable and a message may carry `content: ""` alongside one — a
+/// picture needs no caption. What it may never carry is neither: `ChatService.sendMessage`
+/// rejects an empty `content` with no `fileId`, the same "at least one of the two" shape E1's
+/// own reasoning already gives PaymentSlip vs. a text reason. `onDelete: Restrict` matches every
+/// other relation into `UploadedFile` (`ReviewImage`, `PaymentSlip`, …) — nothing in this system
+/// ever deletes an uploaded file, so the question of what happens on delete has never had to be
+/// answered differently here.
+model ChatMessage {
+  id String @id @db.Uuid
+
+  roomId String   @map("room_id") @db.Uuid
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  senderId String @map("sender_id") @db.Uuid
+  sender   User   @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+
+  orderId String? @map("order_id") @db.Uuid
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  fileId String?       @map("file_id") @db.Uuid
+  file   UploadedFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  content String @db.Text
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// §89: when the sender last changed `content`, or null if never. `content` always holds the
+  /// current text; every earlier one is a `ChatMessageVersion` row.
+  editedAt DateTime? @map("edited_at") @db.Timestamptz(6)
+  /// §89: when the sender unsent this message. The row keeps `content` and `fileId` exactly as
+  /// they were — the parties are shown neither (`ChatMessageDto.forParty`), an admin under an open
+  /// dispute is shown both (H8: the chat is evidence, and unsending must not destroy it).
+  unsentAt DateTime? @map("unsent_at") @db.Timestamptz(6)
+
+  versions ChatMessageVersion[]
+  reports  ChatReport[]
+  hiddenBy ChatMessageHidden[]
+
+  /// Supports "the last N messages of this room, in id order" — the same keyset-pagination shape
+  /// every other list in this system uses (id is UUIDv7, so it already sorts chronologically).
+  @@index([roomId, id])
+  @@map("chat_message")
+}
+
+/// §89: every text an edited message has ever shown, the way Messenger's "edit history" does —
+/// both parties may read it, since an edit that quietly rewrote what was agreed would make the
+/// chat worthless as dispute evidence (H8).
+///
+/// Written only once a message is first edited: that edit inserts two rows, the original text
+/// (at the message's own `createdAt`) and the new one, and each later edit adds one more. A message
+/// never edited has no rows, and its single version is the message itself — so the other ~all
+/// messages cost nothing. The newest row always equals `ChatMessage.content`.
+///
+/// PDPA erasure overwrites `content` here along with the message's own (G3/H8): an old version is
+/// the same person's free text as the current one.
+model ChatMessageVersion {
+  id String @id @db.Uuid
+
+  messageId String      @map("message_id") @db.Uuid
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Restrict)
+
+  content String @db.Text
+
+  /// When this text became the message's content — `createdAt` for the original.
+  writtenAt DateTime @map("written_at") @db.Timestamptz(6)
+
+  @@index([messageId, id])
+  @@map("chat_message_version")
+}
+
+/// Code review of topic 11 (§83): a chat picture that has been uploaded but not yet sent.
+///
+/// `UploadedFile` records nothing about who uploaded a file or what for, so before this table
+/// `sendMessage` could only check that *some* uploaded file had the given id — any file at all:
+/// another room's picture, a payment slip, a PDF (verified: a PDF's id was accepted and then
+/// served back through the chat attachment route, straight through K17's "ไม่รับ pdf" wall, held
+/// up only by slip ids never appearing in a response, which #66 forbids relying on). A row here is
+/// the upload route's receipt: this file, this room, this uploader. `sendMessage` accepts a
+/// `fileId` only by deleting its row — the claim and the check are the same statement, so a file
+/// attaches to exactly one message, and only the sender's own upload in that very room.
+///
+/// The same rows are what bound the disk: at most `MAX_PENDING_CHAT_ATTACHMENTS_PER_UPLOADER` per
+/// (room, uploader) at a time (unbounded before — forty 10MB uploads in a row all succeeded and
+/// stayed on disk forever), and `ChatPendingAttachmentSweepTask` deletes both the row and the file
+/// once `PENDING_CHAT_ATTACHMENT_TTL_HOURS` pass unsent.
+///
+/// `fileId` is the key — one pending row per file — and `onDelete: Restrict` everywhere, matching
+/// every other relation into these tables: rows are only ever removed by the two paths above.
+model ChatPendingAttachment {
+  fileId String       @id @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  roomId String   @map("room_id") @db.Uuid
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  uploaderId String @map("uploader_id") @db.Uuid
+  uploader   User   @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// The per-(room, uploader) cap count.
+  @@index([roomId, uploaderId])
+  /// The sweep's "older than the TTL" scan.
+  @@index([createdAt])
+  @@map("chat_pending_attachment")
+}
+
+/// #67 (K17): how far into a room's history one party has read, so `listRooms` can show an
+/// unread count without a "read" row per message — the AC is explicit that a per-message read
+/// receipt is "much more expensive and nobody asked for it" (a row per (message × reader) grows
+/// faster than the messages themselves on a memory-constrained server). One row per
+/// (room, reader) instead, moved forward whenever that party reads the room's history
+/// (`ChatService.listMessages` — see that method's own comment for why it, specifically, is the
+/// read signal). Absent entirely means "never read" — `ChatService` treats a missing row as
+/// "every message from the other party is unread", not as zero.
+model ChatRoomRead {
+  id String @id @db.Uuid
+
+  roomId String   @map("room_id") @db.Uuid
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  lastReadAt DateTime @map("last_read_at") @db.Timestamptz(6)
+
+  clearedAt DateTime? @map("cleared_at") @db.Timestamptz(6)
+
+  @@unique([roomId, userId])
+  @@map("chat_room_read")
+}
+
+/// §98 (owner's decision in §93): the traffic data พ.ร.บ.คอมพิวเตอร์ ม.26 asks a service provider
+/// to keep for 90 days — when, from where, which account, what was done — and nothing of what was
+/// said or sent. One row per HTTP request and per chat connection/event. Deleted by
+/// `AccessLogRetentionSweepTask` once older than 90 days; no endpoint reads it (it exists to be
+/// handed over on a lawful request, not browsed).
+///
+/// Kept through a PDPA erasure (G3 does not reach it): the retention is a legal obligation (PDPA
+/// ม.24(6)), the row carries no name, email or content, and it is gone within 90 days anyway.
+model AccessLog {
+  id String @id @db.Uuid
+
+  /// When the request arrived (the Clock's time, like every other timestamp here).
+  occurredAt DateTime @map("occurred_at") @db.Timestamptz(3)
+
+  /// The caller's address, as Express resolves it through TRUST_PROXY_HOPS — never a header the
+  /// caller wrote. 45 fits the longest textual IPv6 form.
+  ipAddress String @map("ip_address") @db.VarChar(45)
+
+  /// The signed-in account, or null for an anonymous request. Not a foreign key, for AuditLog's
+  /// reason: the log's job is to outlive what it names, and a failed sign-in names nobody.
+  userId String? @map("user_id") @db.Uuid
+
+  /// 'HTTP' | 'WEBSOCKET'. A string, like AuditLog.action, so a third channel needs no ALTER TYPE.
+  channel String @db.VarChar(16)
+
+  /// What was done: the method and the route's *pattern* ("POST /api/v1/orders/:orderId/dispute")
+  /// or the chat event's name — never a concrete path, query string or body, which is where ids,
+  /// tokens and words live.
+  action String @db.VarChar(200)
+
+  /// The HTTP status sent back; null for chat, which has no such thing.
+  statusCode Int? @map("status_code") @db.SmallInt
+
+  /// The retention sweep deletes by age; an official's request asks by account and time.
+  @@index([occurredAt])
+  @@index([userId, occurredAt])
+  @@map("access_log")
+}
+
+/// §106: the one conversation between a shop and the admins of its community — a shared inbox, not
+/// one admin's private line (the owner's choice: nobody negotiates with a shop off the record, and
+/// an admin leaving leaves nothing stranded). One row per `Shop`, created by whichever side opens it
+/// first. Kept apart from `ChatRoom` on purpose: that table is buyer × shop owner, with its own
+/// break-glass rule (invariant 8); here the admins are a party, and who sees what differs by side.
+model ShopAdminChatRoom {
+  id String @id @db.Uuid
+
+  shopId String @unique @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  /// §108: as `ChatRoom.lastActivityAt` — the admins' inbox, newest message first.
+  lastActivityAt DateTime @map("last_activity_at") @db.Timestamptz(6)
+
+  messages       ShopAdminChatMessage[]
+  reads          ShopAdminChatRead[]
+  pendingUploads ShopAdminChatPendingAttachment[]
+
+  /// §108: the admins' inbox, newest activity first.
+  @@index([lastActivityAt(sort: Desc), id(sort: Desc)])
+  @@map("shop_admin_chat_room")
+}
+
+/// §106: one message, from the shop's owner (`SHOP`) or from one of the admins (`ADMIN`). The shop
+/// is never told which admin — `senderId` is kept for the admins and the audit log, and left out of
+/// what the shop reads. Edits and unsend work as in §89: `content` is the current text, earlier
+/// texts are `ShopAdminChatMessageVersion` rows, and an unsent message keeps everything for the
+/// admins while the shop sees an empty shell.
+model ShopAdminChatMessage {
+  id String @id @db.Uuid
+
+  roomId String            @map("room_id") @db.Uuid
+  room   ShopAdminChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  senderId String @map("sender_id") @db.Uuid
+  sender   User   @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  /// `SHOP` or `ADMIN` — decided when sent, so a later role change never rewrites who spoke for whom.
+  senderSide String @map("sender_side") @db.VarChar(10)
+
+  fileId String?       @map("file_id") @db.Uuid
+  file   UploadedFile? @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  content String @db.Text
+
+  createdAt DateTime  @map("created_at") @db.Timestamptz(6)
+  editedAt  DateTime? @map("edited_at") @db.Timestamptz(6)
+  unsentAt  DateTime? @map("unsent_at") @db.Timestamptz(6)
+
+  versions ShopAdminChatMessageVersion[]
+
+  @@index([roomId, id])
+  @@index([senderId])
+  @@map("shop_admin_chat_message")
+}
+
+/// §106: every text a message has shown once it was edited — as `ChatMessageVersion` (§89).
+model ShopAdminChatMessageVersion {
+  id String @id @db.Uuid
+
+  messageId String               @map("message_id") @db.Uuid
+  message   ShopAdminChatMessage @relation(fields: [messageId], references: [id], onDelete: Restrict)
+
+  content String @db.Text
+
+  writtenAt DateTime @map("written_at") @db.Timestamptz(6)
+
+  @@index([messageId, id])
+  @@map("shop_admin_chat_message_version")
+}
+
+/// §106: how far each *side* has read — one marker for the shop, one shared by every admin (the
+/// owner's answer: the community reads as one inbox). Two rows per room at most.
+model ShopAdminChatRead {
+  id String @id @db.Uuid
+
+  roomId String            @map("room_id") @db.Uuid
+  room   ShopAdminChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  side String @db.VarChar(10)
+
+  lastReadAt DateTime @map("last_read_at") @db.Timestamptz(6)
+
+  @@unique([roomId, side])
+  @@map("shop_admin_chat_read")
+}
+
+/// §106: a picture uploaded to the admin↔shop chat and not yet sent — `ChatPendingAttachment`'s
+/// twin (§83), swept by the same 24-hour task.
+model ShopAdminChatPendingAttachment {
+  fileId String       @id @map("file_id") @db.Uuid
+  file   UploadedFile @relation(fields: [fileId], references: [id], onDelete: Restrict)
+
+  roomId String            @map("room_id") @db.Uuid
+  room   ShopAdminChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  uploaderId String @map("uploader_id") @db.Uuid
+  uploader   User   @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @map("created_at") @db.Timestamptz(6)
+
+  @@index([roomId, uploaderId])
+  @@index([createdAt])
+  @@map("shop_admin_chat_pending_attachment")
+}
+
+/// A community article for the knowledge hub.
+model Article {
+  id String @id @db.Uuid
+
+  title    String @db.VarChar(255)
+  category String @db.VarChar(100)
+  image    String? @db.VarChar(2000)
+
+  authorName String @map("author_name") @db.VarChar(255)
+  excerpt    String? @db.Text
+  content    String  @db.Text
+
+  tags Json? @default("[]")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([category, createdAt])
+  @@map("article")
+}
+
+/// A request by a user to create a new community.
+model CommunityRequest {
+  id String @id @db.Uuid
+
+  name        String @db.VarChar(200)
+  description String @db.Text
+  location    String? @db.VarChar(255)
+
+  requesterId String @map("requester_id") @db.Uuid
+  requester   User   @relation(fields: [requesterId], references: [id], onDelete: Restrict)
+
+  /// 'PENDING', 'APPROVED', 'REJECTED'
+  status      String @default("PENDING") @db.VarChar(20)
+  
+  /// Note or reason for rejection
+  reason      String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, createdAt])
+  @@map("community_request")
+}
+
+/// Promotional banners shown on the homepage
+model Banner {
+  id String @id @db.Uuid
+
+  title       String? @db.VarChar(100)
+  subtitle    String? @db.VarChar(200)
+  tag         String? @db.VarChar(50)
+  imageUrl    String  @map("image_url") @db.VarChar(500)
+  linkUrl     String? @map("link_url") @db.VarChar(500)
+  
+  /// Sort order for display (lower number = earlier)
+  displayOrder Int @default(0) @map("display_order")
+  
+  isActive     Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([isActive, displayOrder])
+  @@map("banner")
+}
+
+model Favorite {
+  id        String   @id @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  productId String   @map("product_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, productId])
+  @@map("favorite")
+}
+
+model ShopFollow {
+  id        String   @id @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  shopId    String   @map("shop_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, shopId])
+  @@map("shop_follow")
+}
+
+/// §116: when the scheduled sweep last ran
+model SweepHeartbeat {
+  id String @id @db.Uuid
+
+  name String @unique @db.VarChar(64)
+
+  lastRunAt DateTime @map("last_run_at") @db.Timestamptz(6)
+
+  @@map("sweep_heartbeat")
+}
+
+/// §TOR 6.2.8: Type of discount for coupon (Percentage or Fixed amount in Satang)
+enum CouponDiscountType {
+  FIXED_AMOUNT
+  PERCENTAGE
+
+  @@map("coupon_discount_type")
+}
+
+/// §TOR 6.2.8: Seller-created shop voucher/coupon
+model ShopCoupon {
+  id String @id @db.Uuid
+
+  shopId String @map("shop_id") @db.Uuid
+  shop   Shop   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+
+  code                   String             @db.VarChar(50)
+  name                   String             @db.VarChar(120)
+  discountType           CouponDiscountType @map("discount_type")
+  discountValue          Int                @map("discount_value")
+  minSpendAmountMinor    Int                @default(0) @map("min_spend_amount_minor")
+  maxDiscountAmountMinor Int?               @map("max_discount_amount_minor")
+  quota                  Int                @map("quota")
+  claimedCount           Int                @default(0) @map("claimed_count")
+  usedCount              Int                @default(0) @map("used_count")
+  startDate              DateTime           @map("start_date") @db.Timestamptz(6)
+  endDate                DateTime           @map("end_date") @db.Timestamptz(6)
+  isActive               Boolean            @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  claims UserCouponClaim[]
+  orders Order[]
+
+  @@unique([shopId, code])
+  @@index([shopId])
+  @@map("shop_coupon")
+}
+
+/// §TOR 6.2.8: Claimed coupons collected by buyers
+model UserCouponClaim {
+  id String @id @db.Uuid
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  couponId String     @map("coupon_id") @db.Uuid
+  coupon   ShopCoupon @relation(fields: [couponId], references: [id], onDelete: Restrict)
+
+  claimedAt DateTime @default(now()) @map("claimed_at") @db.Timestamptz(6)
+
+  isUsed Boolean   @default(false) @map("is_used")
+  usedAt DateTime? @map("used_at") @db.Timestamptz(6)
+
+  orderId String? @unique @map("order_id") @db.Uuid
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, couponId])
+  @@index([userId])
+  @@index([couponId])
+  @@map("user_coupon_claim")
+}
+
+/// §130: User block list for chat
+model ChatBlock {
+  id String @id @db.Uuid
+
+  blockerId String @map("blocker_id") @db.Uuid
+  blocker   User   @relation("ChatBlocker", fields: [blockerId], references: [id], onDelete: Restrict)
+
+  blockedId String @map("blocked_id") @db.Uuid
+  blocked   User   @relation("ChatBlocked", fields: [blockedId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("chat_block")
+}
+
+enum ChatReportStatus {
+  PENDING
+  INVESTIGATING
+  RESOLVED
+  DISMISSED
+
+  @@map("chat_report_status")
+}
+
+/// §130: Chat abuse and conduct reports
+model ChatReport {
+  id String @id @db.Uuid
+
+  reporterId String @map("reporter_id") @db.Uuid
+  reporter   User   @relation("ChatReportReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+
+  reportedId String @map("reported_id") @db.Uuid
+  reported   User   @relation("ChatReportReported", fields: [reportedId], references: [id], onDelete: Restrict)
+
+  roomId String   @map("room_id") @db.Uuid
+  room   ChatRoom @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  messageId String?      @map("message_id") @db.Uuid
+  message   ChatMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  reason  String  @db.VarChar(100)
+  details String? @db.Text
+
+  status ChatReportStatus @default(PENDING)
+
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  @@index([reporterId])
+  @@index([reportedId])
+  @@index([roomId])
+  @@map("chat_report")
+}
+
+/// §130: Messages hidden from user's own view (delete on own side)
+model ChatMessageHidden {
+  id String @id @db.Uuid
+
+  messageId String      @map("message_id") @db.Uuid
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  hiddenAt DateTime @default(now()) @map("hidden_at") @db.Timestamptz(6)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@map("chat_message_hidden")
+}
+
+/// §130: Multi-instance rate limiting window stored in PostgreSQL
+model RateLimitCounter {
+  key         String   @id @db.VarChar(255)
+  count       Int      @default(0)
+  startedAtMs BigInt   @map("started_at_ms")
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("rate_limit_counter")
+}
+
+
+

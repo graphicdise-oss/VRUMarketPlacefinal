@@ -1,0 +1,47 @@
+{
+  // Matches what `nest new` generates on the NestJS 12 CLI. NestJS 12 is ESM-only, so
+  // `module: nodenext` and the `.js` extensions on relative imports are not a style choice —
+  // they are what Node needs to resolve the emitted files at runtime.
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2022",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "incremental": true,
+    "skipLibCheck": true,
+
+    // Stricter than the generated starter. CLAUDE.md forbids unexplained `any` and the
+    // compiler is the cheapest place to enforce that, so these are on deliberately.
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+
+    "types": ["node"]
+  },
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "prisma.config.ts",
+    "prisma/seed.ts",
+    "prisma/clean-mock.ts",
+    "prisma/seed-staging.ts",
+    "prisma/seed-coupons.ts",
+    "prisma/seed-all-sellers-full-dashboard.ts",
+    "prisma/seed-qa-scenarios.ts",
+    "prisma/reference-data/**/*.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
