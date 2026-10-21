@@ -60,6 +60,10 @@ MAIL_FROM_ADDRESS=noreply@vrumarketplace.com
 MAIL_FROM_NAME=VRU Marketplace
 
 FRONTEND_BASE_URL=https://vrumarketplace.com
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://vrumarketplace.com/api/v1/auth/google/callback
+
 TRUST_PROXY_HOPS=1
 
 RATE_LIMIT_LOGIN_PER_15_MIN=30
