@@ -5,7 +5,7 @@ BACKEND_DIR="/home/ubuntu/VRUMarketPlacefinal/backend/Backend-VRU-Marketplace-ma
 cd "$BACKEND_DIR"
 
 echo "=== 🔄 [1/4] Syncing Database Schema (creating missing tables like coupons & rate limits) ==="
-npx prisma db push --skip-generate
+npx prisma db push --accept-data-loss
 
 echo "=== 🔑 [2/4] Updating Passwords for Admin, Seller, and Buyer Demo Accounts ==="
 npx tsx prisma/seed-staging.ts
