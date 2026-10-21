@@ -10,6 +10,19 @@ BACKEND_DIR="$PROJECT_DIR/backend/Backend-VRU-Marketplace-main"
 FRONTEND_DIR="$PROJECT_DIR"
 UPLOAD_DIR="/home/ubuntu/uploads"
 
+# 0. Setup 4GB Swap space to prevent Out of Memory on 2GB RAM server
+SWAP_SIZE=$(free -m | awk '/^Swap:/ {print $2}')
+if [ -z "$SWAP_SIZE" ] || [ "$SWAP_SIZE" -lt 1000 ]; then
+    echo "🧠 [0/5] Setting up 4GB Swap memory to ensure smooth build..."
+    if [ ! -f /swapfile ]; then
+        sudo fallocate -l 4G /swapfile 2>/dev/null || sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+        sudo chmod 600 /swapfile
+        sudo mkswap /swapfile
+    fi
+    sudo swapon /swapfile 2>/dev/null || true
+fi
+free -h
+
 # 1. Prepare upload folder
 echo "📁 [1/5] Creating uploads folder..."
 mkdir -p "$UPLOAD_DIR"
@@ -77,6 +90,7 @@ pm2 start dist/main.js --name "vru-backend"
 echo "🌐 [5/5] Installing Frontend dependencies and building..."
 cd "$FRONTEND_DIR"
 npm install --legacy-peer-deps
+export NODE_OPTIONS="--max-old-space-size=2048"
 npm run build
 pm2 delete vru-frontend 2>/dev/null || true
 pm2 start npm --name "vru-frontend" -- start
