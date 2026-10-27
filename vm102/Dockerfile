@@ -17,8 +17,8 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-# Public API URL passed at build time (or defaults to Gateway IP)
-ARG NEXT_PUBLIC_API_URL=http://172.16.90.101/api/v1
+# Public API URL passed at build time (defaults to relative /api/v1 for universal domain access)
+ARG NEXT_PUBLIC_API_URL=/api/v1
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 RUN npm run build
