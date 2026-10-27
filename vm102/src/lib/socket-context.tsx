@@ -22,34 +22,55 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     // Only connect if authenticated
     if (!isAuthenticated) return;
 
-    // Use API base URL for Socket.IO server, defaulting to localhost:3001
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
-    const origin = new URL(API_BASE).origin;
-    
-    // Connect to the /chat namespace with the specific socket.io path
-    const socketInstance = io(`${origin}/chat`, {
-      path: "/api/v1/socket.io",
-      withCredentials: true,
-      autoConnect: true,
-      transports: ["websocket"]
-    });
-    
-    socketInstance.on("connect", () => {
-      console.log("[Socket] Connected to server");
-      setIsConnected(true);
-    });
-    
-    socketInstance.on("disconnect", () => {
-      console.log("[Socket] Disconnected from server");
-      setIsConnected(false);
-    });
-    
-    setTimeout(() => {
+    // Resolve origin safely (handles both absolute URLs and relative paths like "/api/v1")
+    let origin = "";
+    try {
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
+      if (API_BASE.startsWith("http://") || API_BASE.startsWith("https://")) {
+        origin = new URL(API_BASE).origin;
+      } else if (typeof window !== "undefined") {
+        origin = window.location.origin;
+      }
+    } catch {
+      origin = typeof window !== "undefined" ? window.location.origin : "";
+    }
+
+    if (!origin) return;
+
+    let socketInstance: Socket | null = null;
+    try {
+      // Connect to the /chat namespace with the specific socket.io path
+      socketInstance = io(`${origin}/chat`, {
+        path: "/api/v1/socket.io",
+        withCredentials: true,
+        autoConnect: true,
+        transports: ["websocket", "polling"]
+      });
+
+      socketInstance.on("connect", () => {
+        console.log("[Socket] Connected to server");
+        setIsConnected(true);
+      });
+
+      socketInstance.on("disconnect", () => {
+        console.log("[Socket] Disconnected from server");
+        setIsConnected(false);
+      });
+
+      socketInstance.on("connect_error", (err) => {
+        console.warn("[Socket] Connection error:", err.message);
+        setIsConnected(false);
+      });
+
       setSocket(socketInstance);
-    }, 0);
-    
+    } catch (err) {
+      console.warn("[Socket] Failed to create socket instance:", err);
+    }
+
     return () => {
-      socketInstance.disconnect();
+      if (socketInstance) {
+        socketInstance.disconnect();
+      }
     };
   }, [isAuthenticated, user]);
 

@@ -7,16 +7,25 @@ import Link from "next/link";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import { HeatMapPoint } from "@/components/map/HeatMapDisplay";
 import { superAdminApi, PlatformDashboardDto, LocationStatsDto } from "@/lib/api";
+import dynamic from "next/dynamic";
 import BroadcastTab from "./components/BroadcastTab";
 import CategoriesTab from "./components/CategoriesTab";
 import DisputesTab from "./components/DisputesTab";
 import UsersTab from "./components/UsersTab";
 import CommunitiesTab from "./components/CommunitiesTab";
 import AdminsTab from "./components/AdminsTab";
-import DashboardTab from "./components/DashboardTab";
 import BannersTab from "./components/BannersTab";
 import AuditLogTab from "./components/AuditLogTab";
 import ArticleAdminClient from "@/app/admin/articles/ArticleAdminClient";
+
+const DashboardTab = dynamic(() => import("./components/DashboardTab"), {
+  ssr: false,
+  loading: () => (
+    <div className="p-12 flex items-center justify-center">
+      <div className="w-8 h-8 border-4 border-[#16A085] border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  ),
+});
 
 type Tab = "dashboard" | "communities" | "admins" | "categories" | "users" | "disputes" | "broadcast" | "banners" | "articles" | "audit-log";
 
@@ -33,21 +42,25 @@ const tabs: { value: Tab; label: string; icon: string }[] = [
   { value: "audit-log", label: "Audit Log", icon: "fa-solid fa-clock-rotate-left" },
 ];
 
-
-
 const COLORS = ['#8b5cf6', '#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#14b8a6'];
 
 export default function SuperAdminDashboardClient() {
   const { user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
 
+  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!isAuthLoading && (!user || user.role !== "SUPER_ADMIN")) {
       router.push("/login?callbackUrl=/super-admin");
     }
   }, [user, isAuthLoading, router]);
+
   
   // Dashboard Filters
   const [timeFilter, setTimeFilter] = useState("MONTH");
@@ -102,7 +115,7 @@ export default function SuperAdminDashboardClient() {
   // Handlers
   // Handlers have been moved to tabs
 
-  if (isAuthLoading || !user || user.role !== "SUPER_ADMIN") {
+  if (!mounted || isAuthLoading || !user || user.role !== "SUPER_ADMIN") {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">

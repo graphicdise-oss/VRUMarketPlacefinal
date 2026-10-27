@@ -67,6 +67,31 @@ export default function OrdersPageClient() {
     }
   }, [user, isAuthLoading, router]);
 
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    counts["ALL"] = orders.filter(o => o.status !== "FROZEN").length;
+    statusTabs.forEach(t => {
+      if (t.value !== "ALL") {
+        counts[t.value] = orders.filter(o => o.status === t.value).length;
+      }
+    });
+    return counts;
+  }, [orders]);
+
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const activeTabBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Auto-scroll active tab into view on mobile
+  useEffect(() => {
+    if (activeTabBtnRef.current) {
+      activeTabBtnRef.current.scrollIntoView({
+        behavior: "smooth",
+        inline: "center",
+        block: "nearest",
+      });
+    }
+  }, [activeTab]);
+
   // If auth is loading, or user is null (about to redirect), show loading state
   if (isAuthLoading || !user) {
     return (
@@ -107,31 +132,6 @@ export default function OrdersPageClient() {
       default: return "text-[#16A085]";
     }
   };
-
-  const tabCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    counts["ALL"] = orders.filter(o => o.status !== "FROZEN").length;
-    statusTabs.forEach(t => {
-      if (t.value !== "ALL") {
-        counts[t.value] = orders.filter(o => o.status === t.value).length;
-      }
-    });
-    return counts;
-  }, [orders]);
-
-  const tabsContainerRef = useRef<HTMLDivElement>(null);
-  const activeTabBtnRef = useRef<HTMLButtonElement>(null);
-
-  // Auto-scroll active tab into view on mobile
-  useEffect(() => {
-    if (activeTabBtnRef.current) {
-      activeTabBtnRef.current.scrollIntoView({
-        behavior: "smooth",
-        inline: "center",
-        block: "nearest",
-      });
-    }
-  }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] flex flex-col">

@@ -370,9 +370,10 @@ export default function ChatPageClient() {
       try {
         const uploadRes = await uploadChatAttachment(activeContactId, selectedFile);
         fileId = uploadRes.fileId;
-      } catch (err: any) {
+      } catch (err: unknown) {
         setIsUploading(false);
-        alert("อัปโหลดรูปภาพไม่สำเร็จ: " + (err.message || "เกิดข้อผิดพลาด กรุณาลองใหม่"));
+        const errMsg = err instanceof Error ? err.message : "เกิดข้อผิดพลาด กรุณาลองใหม่";
+        alert("อัปโหลดรูปภาพไม่สำเร็จ: " + errMsg);
         return;
       }
       setIsUploading(false);

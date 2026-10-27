@@ -9,3 +9,5 @@ export const metadata: Metadata = {
 export default function ArticleAdminPage() {
   return <ArticleAdminClient />;
 }
+
+
