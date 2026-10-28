@@ -17,6 +17,14 @@ const notoSansThai = Noto_Sans_Thai({
 export const metadata: Metadata = {
   title: "VRU Marketplace - แหล่งรวมสินค้าชุมชนออนไลน์",
   description: "ศูนย์รวมสินค้าจากชุมชน และนวัตกรรมจากมหาวิทยาลัยราชภัฏวไลยอลงกรณ์ ส่งตรงถึงมือคุณอย่างมั่นใจ",
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png", sizes: "256x256" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
