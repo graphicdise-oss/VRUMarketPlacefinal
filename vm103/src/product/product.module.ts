@@ -5,6 +5,7 @@ import { ProductController } from './controllers/product.controller.js';
 import { ProductIdScopeResolver } from './product-id.scope-resolver.js';
 import { ProductAdminService } from './services/product-admin.service.js';
 import { ProductService } from './services/product.service.js';
+import { SearchAnalyticsService } from './services/search-analytics.service.js';
 
 /**
  * `Product` + `ProductVariant` (#41). Imports `ShopModule` for `ShopService.findOwnShopRow` —
@@ -17,6 +18,7 @@ import { ProductService } from './services/product.service.js';
 @Module({
   imports: [ShopModule, OrderFreezeModule],
   controllers: [ProductController],
-  providers: [ProductService, ProductAdminService, ProductIdScopeResolver],
+  providers: [ProductService, ProductAdminService, ProductIdScopeResolver, SearchAnalyticsService],
+  exports: [SearchAnalyticsService],
 })
 export class ProductModule {}

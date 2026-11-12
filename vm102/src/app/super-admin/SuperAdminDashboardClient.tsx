@@ -129,65 +129,65 @@ export default function SuperAdminDashboardClient() {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       <header className="bg-gray-900 text-white sticky top-0 z-40 shadow-md">
-        <div className="w-full px-6 md:px-8 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="bg-[#16A085] text-white w-10 h-10 rounded-xl flex items-center justify-center text-xl shadow-sm">
+        <div className="w-full px-3.5 sm:px-6 md:px-8 py-2.5 sm:py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5 sm:gap-3">
+            <div className="bg-[#16A085] text-white w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center text-base sm:text-xl shadow-2xs">
               <i className="fa-solid fa-server"></i>
             </div>
             <div>
-              <h1 className="font-black tracking-tight text-lg leading-tight">PLATFORM <span className="text-[#16A085]">ADMIN</span></h1>
-              <p className="text-[10px] text-gray-400 font-medium tracking-widest uppercase">Central Control System</p>
+              <h1 className="font-black tracking-tight text-sm sm:text-lg leading-tight">PLATFORM <span className="text-[#16A085]">ADMIN</span></h1>
+              <p className="text-[9px] sm:text-[10px] text-gray-400 font-medium tracking-widest uppercase">Central Control System</p>
             </div>
           </Link>
-          <Link href="/" className="text-sm font-bold text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-full transition-all flex items-center gap-2 border border-gray-700">
-            <i className="fa-solid fa-house"></i> กลับหน้าร้าน
+          <Link href="/" className="text-xs sm:text-sm font-bold text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full transition-all flex items-center gap-1.5 sm:gap-2 border border-gray-700 shadow-2xs">
+            <i className="fa-solid fa-house text-xs"></i> <span className="hidden xs:inline">กลับ</span>หน้าร้าน
           </Link>
         </div>
       </header>
 
-      <div className="bg-white border-b border-gray-100 w-full shadow-sm relative z-30">
-        <div className="w-full px-6 md:px-8 py-6">
+      <div className="bg-white border-b border-gray-100 w-full shadow-2xs relative z-30">
+        <div className="w-full px-3.5 sm:px-6 md:px-8 py-3 sm:py-6">
           <Breadcrumb items={[{ label: "Platform Admin", href: "/admin/platform" }]} />
           
           {/* Dashboard Stats */}
-          <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden group hover:border-blue-200 transition-colors">
-              <div className="absolute -right-4 -top-4 w-24 h-24 bg-blue-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+          <div className="mt-3 sm:mt-6 grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+            <div className="bg-white p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border border-gray-100 shadow-2xs relative overflow-hidden group hover:border-blue-200 transition-colors">
+              <div className="absolute -right-4 -top-4 w-16 h-16 sm:w-24 sm:h-24 bg-blue-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
               <div className="relative">
-                <p className="text-gray-500 text-xs font-bold mb-1 flex items-center gap-2"><i className="fa-solid fa-users-viewfinder text-blue-500"></i> ชุมชนทั้งหมด</p>
-                <div className="flex items-baseline gap-2">
-                  <h3 className="text-3xl font-black text-gray-800">{totalCommunitiesCount}</h3>
-                  <span className="text-sm font-bold text-gray-400">แห่ง</span>
+                <p className="text-gray-500 text-[11px] sm:text-xs font-bold mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2 truncate"><i className="fa-solid fa-users-viewfinder text-blue-500 text-xs"></i> ชุมชนทั้งหมด</p>
+                <div className="flex items-baseline gap-1 sm:gap-2">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-gray-800">{totalCommunitiesCount}</h3>
+                  <span className="text-xs sm:text-sm font-bold text-gray-400">แห่ง</span>
                 </div>
               </div>
             </div>
-            <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden group hover:border-purple-200 transition-colors">
-              <div className="absolute -right-4 -top-4 w-24 h-24 bg-purple-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+            <div className="bg-white p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border border-gray-100 shadow-2xs relative overflow-hidden group hover:border-purple-200 transition-colors">
+              <div className="absolute -right-4 -top-4 w-16 h-16 sm:w-24 sm:h-24 bg-purple-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
               <div className="relative">
-                <p className="text-gray-500 text-xs font-bold mb-1 flex items-center gap-2"><i className="fa-solid fa-user-shield text-purple-500"></i> แอดมินชุมชน</p>
-                <div className="flex items-baseline gap-2">
-                  <h3 className="text-3xl font-black text-gray-800">{totalAdminsCount}</h3>
-                  <span className="text-sm font-bold text-gray-400">คน</span>
+                <p className="text-gray-500 text-[11px] sm:text-xs font-bold mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2 truncate"><i className="fa-solid fa-user-shield text-purple-500 text-xs"></i> แอดมินชุมชน</p>
+                <div className="flex items-baseline gap-1 sm:gap-2">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-gray-800">{totalAdminsCount}</h3>
+                  <span className="text-xs sm:text-sm font-bold text-gray-400">คน</span>
                 </div>
               </div>
             </div>
-            <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden group hover:border-green-200 transition-colors">
-              <div className="absolute -right-4 -top-4 w-24 h-24 bg-green-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+            <div className="bg-white p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border border-gray-100 shadow-2xs relative overflow-hidden group hover:border-green-200 transition-colors">
+              <div className="absolute -right-4 -top-4 w-16 h-16 sm:w-24 sm:h-24 bg-green-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
               <div className="relative">
-                <p className="text-gray-500 text-xs font-bold mb-1 flex items-center gap-2"><i className="fa-solid fa-users text-green-500"></i> ผู้ใช้งานระบบ</p>
-                <div className="flex items-baseline gap-2">
-                  <h3 className="text-3xl font-black text-gray-800">{totalUsersCount}</h3>
-                  <span className="text-sm font-bold text-gray-400">บัญชี</span>
+                <p className="text-gray-500 text-[11px] sm:text-xs font-bold mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2 truncate"><i className="fa-solid fa-users text-green-500 text-xs"></i> ผู้ใช้งานระบบ</p>
+                <div className="flex items-baseline gap-1 sm:gap-2">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-gray-800">{totalUsersCount}</h3>
+                  <span className="text-xs sm:text-sm font-bold text-gray-400">บัญชี</span>
                 </div>
               </div>
             </div>
-            <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden group hover:border-orange-200 transition-colors">
-              <div className="absolute -right-4 -top-4 w-24 h-24 bg-orange-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+            <div className="bg-white p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border border-gray-100 shadow-2xs relative overflow-hidden group hover:border-orange-200 transition-colors">
+              <div className="absolute -right-4 -top-4 w-16 h-16 sm:w-24 sm:h-24 bg-orange-50/80 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
               <div className="relative">
-                <p className="text-gray-500 text-xs font-bold mb-1 flex items-center gap-2"><i className="fa-solid fa-gavel text-orange-500"></i> ข้อพิพาททั้งหมด</p>
-                <div className="flex items-baseline gap-2">
-                  <h3 className="text-3xl font-black text-orange-600">{totalAppealsCount}</h3>
-                  <span className="text-sm font-bold text-orange-400/80">คดี</span>
+                <p className="text-gray-500 text-[11px] sm:text-xs font-bold mb-0.5 sm:mb-1 flex items-center gap-1.5 sm:gap-2 truncate"><i className="fa-solid fa-gavel text-orange-500 text-xs"></i> ข้อพิพาททั้งหมด</p>
+                <div className="flex items-baseline gap-1 sm:gap-2">
+                  <h3 className="text-xl sm:text-2xl md:text-3xl font-black text-orange-600">{totalAppealsCount}</h3>
+                  <span className="text-xs sm:text-sm font-bold text-orange-400/80">คดี</span>
                 </div>
               </div>
             </div>
@@ -195,10 +195,31 @@ export default function SuperAdminDashboardClient() {
         </div>
       </div>
       
-      <main className="flex-grow w-full px-6 md:px-8 pt-6 pb-8 md:pb-10 flex flex-row gap-8 overflow-x-auto items-start">
+      <main className="flex-grow w-full px-3.5 sm:px-6 md:px-8 pt-3 sm:pt-6 pb-8 md:pb-10 flex flex-col md:flex-row gap-4 md:gap-8 items-start">
         
-        {/* Sidebar Nav (Collapsible) */}
-        <div className={`${isSidebarCollapsed ? "w-20" : "w-64 lg:w-72"} flex-shrink-0 transition-all duration-300 ease-in-out`}>
+        {/* Mobile Horizontal Swipeable Tabs */}
+        <div className="md:hidden w-full overflow-x-auto hide-scrollbar flex gap-2 pb-1 mb-1">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.value;
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setActiveTab(tab.value as Tab)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all shadow-2xs border ${
+                  isActive
+                    ? "bg-gray-900 text-white border-gray-900 shadow-xs scale-102"
+                    : "bg-white text-gray-600 border-gray-200/80 hover:text-gray-900 hover:border-gray-300"
+                }`}
+              >
+                <i className={`${tab.icon} text-xs ${isActive ? "text-[#16A085]" : "text-gray-400"}`}></i>
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sidebar Nav (Collapsible, Desktop Only) */}
+        <div className={`hidden md:block ${isSidebarCollapsed ? "w-20" : "w-64 lg:w-72"} flex-shrink-0 transition-all duration-300 ease-in-out`}>
           <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden sticky top-28">
             <div className="p-4 bg-gray-50/50 border-b border-gray-100 flex items-center justify-between">
               {!isSidebarCollapsed && (
@@ -235,7 +256,7 @@ export default function SuperAdminDashboardClient() {
         </div>
 
         {/* Content Area */}
-        <div className="flex-grow min-w-0">
+        <div className="flex-grow min-w-0 w-full">
           
           {activeTab === "dashboard" && (
             <DashboardTab 

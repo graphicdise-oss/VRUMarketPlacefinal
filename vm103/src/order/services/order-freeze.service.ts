@@ -5,6 +5,7 @@ import { newId } from '../../common/id.js';
 import { communityAdminsToNotify } from '../../community/community-admin-scope.js';
 import { NotificationService } from '../../notification/notification.service.js';
 import { NON_TERMINAL_STATUSES, UNPAID_STATUSES } from '../common/order-status-sets.js';
+import { restoreOrderCouponClaim } from '../common/restore-order-coupon-claim.js';
 
 /**
  * #61: the one mechanism every freeze trigger shares (I6/I10/H2/H4) — "ห้ามเขียนโค้ดชุดที่สอง" is
@@ -168,6 +169,7 @@ export class OrderFreezeService {
           updatedAt: now,
         },
       });
+      await restoreOrderCouponClaim(tx, id);
       const lifted = await tx.orderFreezeReason.deleteMany({ where: { orderId: id } });
       if (lifted.count > 0) {
         await this.clearFreezeAndResetClock(tx, actorUserId, id, now, { reason: 'ยกเลิกเพราะสินค้าในออเดอร์ถูกตัดสินว่าเป็นของต้องห้าม (H4)', notifyBuyer: false });

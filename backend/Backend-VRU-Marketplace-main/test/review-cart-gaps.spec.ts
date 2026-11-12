@@ -351,7 +351,7 @@ describe('a price change is visible in the cart and never charged unseen (§111,
     expect((await cartOf(w.buyer)).items).toHaveLength(1);
   });
 
-  it('refuses checkout when the quantity shown is not the cart’s, a shown line is missing, or one is sent twice', async () => {
+  it('refuses checkout when the quantity shown is not the cart’s, a line is unknown, or one is sent twice', async () => {
     const app = getApp();
     const w = await world(app);
     const first = await approvedProduct(w, 'เสื้อยืด');
@@ -365,7 +365,9 @@ describe('a price change is visible in the cart and never charged unseen (§111,
       { cartItemId: a!.id, quantity: 2, priceAmountMinor: a!.priceAmountMinor },
       { cartItemId: b!.id, quantity: b!.quantity, priceAmountMinor: b!.priceAmountMinor },
     ]);
-    const missingLine = await placeOrderShowing(w.buyer, addressId, [{ cartItemId: a!.id, quantity: a!.quantity, priceAmountMinor: a!.priceAmountMinor }]);
+    const unknownLine = await placeOrderShowing(w.buyer, addressId, [
+      { cartItemId: '00000000-0000-0000-0000-000000000000', quantity: 1, priceAmountMinor: 10000 },
+    ]);
 
     const duplicated = await placeOrderShowing(w.buyer, addressId, [
       { cartItemId: a!.id, quantity: a!.quantity, priceAmountMinor: a!.priceAmountMinor },
@@ -373,8 +375,28 @@ describe('a price change is visible in the cart and never charged unseen (§111,
     ]);
 
     expect((wrongQuantity.body as ErrorBody).code).toBe('STALE_VIEW');
-    expect((missingLine.body as ErrorBody).code).toBe('STALE_VIEW');
+    expect((unknownLine.body as ErrorBody).code).toBe('STALE_VIEW');
     expect((duplicated.body as ErrorBody).code).toBe('STALE_VIEW');
+  });
+
+  it('allows selective checkout of a subset of cart items and leaves unselected items in the cart', async () => {
+    const app = getApp();
+    const w = await world(app);
+    const first = await approvedProduct(w, 'เสื้อยืด');
+    const second = await approvedProduct(w, 'กางเกง');
+    await addToCart(w.buyer, first.variants[0]!.id);
+    await addToCart(w.buyer, second.variants[0]!.id);
+    const addressId = await createAddress(app, w.buyer);
+    const [a, b] = (await cartOf(w.buyer)).items;
+
+    const partialOrder = await placeOrderShowing(w.buyer, addressId, [
+      { cartItemId: a!.id, quantity: a!.quantity, priceAmountMinor: a!.priceAmountMinor },
+    ]);
+
+    expect(partialOrder.status).toBe(201);
+    const remainingCart = await cartOf(w.buyer);
+    expect(remainingCart.items).toHaveLength(1);
+    expect(remainingCart.items[0]!.id).toBe(b!.id);
   });
 
   it('places the order when what was shown is what the cart holds', async () => {

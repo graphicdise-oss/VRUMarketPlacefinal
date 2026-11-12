@@ -3,20 +3,18 @@
 import { useState, useEffect } from "react";
 import ProductCard from "./ProductCard";
 import ProductCardSkeleton from "./ProductCardSkeleton";
-import ProductModal from "@/components/product/ProductModal";
 import { Product } from "@/types";
 import Link from "next/link";
 import { productApi, communityApi } from "@/lib/api";
 import { mapPublicProductDto } from "@/lib/product-mapper";
 
 export default function ProductGrid() {
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
-      productApi.listPublic(),
+      productApi.listPublic({ limit: 8 }),
       // Community names are best-effort: a failure here must not hide the products.
       communityApi.list().then((r) => r.items).catch(() => []),
     ]).then(([res, communities]) => {
@@ -47,7 +45,7 @@ export default function ProductGrid() {
         </div>
         
         {isLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
             {Array.from({ length: 8 }).map((_, index) => (
               <ProductCardSkeleton key={index} />
             ))}
@@ -63,10 +61,10 @@ export default function ProductGrid() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-2.5 sm:gap-4 md:gap-6">
             {products.map((product) => (
               <div key={product.id}>
-                <ProductCard product={product} onViewDetail={setSelectedProduct} />
+                <ProductCard product={product} />
               </div>
             ))}
           </div>
@@ -78,10 +76,6 @@ export default function ProductGrid() {
           </Link>
         </div>
       </section>
-      
-      {selectedProduct && (
-        <ProductModal product={selectedProduct} onClose={() => setSelectedProduct(null)} />
-      )}
     </>
   );
 }

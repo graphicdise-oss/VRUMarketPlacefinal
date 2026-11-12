@@ -1,6 +1,6 @@
 import { ApiError } from "@/types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 // เก็บ CSRF Token ใน Memory ตามกฎ FRONTEND-NOTES.md
 let memoryCsrfToken: string | null = null;

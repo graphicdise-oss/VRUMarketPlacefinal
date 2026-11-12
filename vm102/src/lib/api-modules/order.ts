@@ -108,6 +108,21 @@ export interface ShippingSlipDto {
   createdAt: string;
 }
 
+/** Mirrors backend `RefundSlipDto`. */
+export interface RefundSlipDto {
+  id: string;
+  orderId: string;
+  createdAt: string;
+}
+
+export interface RefundAccountPayload {
+  type: "BANK_TRANSFER" | "PROMPTPAY";
+  bankName?: string;
+  bankAccountNumber?: string;
+  bankAccountName?: string;
+  promptPayId?: string;
+}
+
 /** Mirrors backend `ShippingCarrierDto`. */
 export interface ShippingCarrierDto {
   id: string;
@@ -149,6 +164,16 @@ export const sellerOrderApi = {
     files.forEach(f => formData.append("files", f));
     return api.post<DisputeDto>(`/shops/me/orders/${orderId}/dispute/respond`, formData);
   },
+  uploadRefundSlip: (orderId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<RefundSlipDto>(`/shops/me/orders/${orderId}/refund-slips`, formData);
+  },
+  getRefundSlips: (orderId: string) => api.get<RefundSlipDto[]>(`/orders/${orderId}/refund-slips`),
+  getSlips: (orderId: string) => api.get<PaymentSlipDto[]>(`/orders/${orderId}/payment-slips`),
+  getPaymentSlips: (orderId: string) => api.get<PaymentSlipDto[]>(`/orders/${orderId}/payment-slips`),
+  cancel: (orderId: string, reason: string) =>
+    api.post<OrderDto>(`/shops/me/orders/${orderId}/cancel`, { reason }),
 };
 
 export const buyerOrderApi = {
@@ -180,6 +205,12 @@ export const buyerOrderApi = {
   markReceived: (orderId: string) => api.post<OrderDto>(`/orders/${orderId}/receive`),
   rejectShippingFee: (orderId: string, reason: string) => api.post<OrderDto>(`/orders/${orderId}/reject-shipping-fee`, { reason }),
   getPaymentChannels: (orderId: string) => api.get<PaymentChannelDto[]>(`/orders/${orderId}/payment-channels`),
+  submitRefundAccount: (orderId: string, account: RefundAccountPayload) =>
+    api.post<OrderDto>(`/orders/${orderId}/refund-account`, account),
+  getRefundSlips: (orderId: string) => api.get<RefundSlipDto[]>(`/orders/${orderId}/refund-slips`),
+  confirmRefundReceived: (orderId: string) => api.post<OrderDto>(`/orders/${orderId}/refund-received`),
+  cancel: (orderId: string, reason?: string) =>
+    api.post<OrderDto>(`/orders/${orderId}/cancel`, { reason }),
 };
 
 export const shippingCarrierApi = {

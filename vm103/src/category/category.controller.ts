@@ -64,7 +64,7 @@ export class CategoryController {
     @CurrentUser() actor: CurrentUserType,
     @Body() dto: CreateCategoryDto,
   ): Promise<CategoryDto> {
-    return this.categories.create(actor.id, dto.name);
+    return this.categories.create(actor.id, dto.name, dto.icon, dto.color);
   }
 
   @Patch(':id')
@@ -88,6 +88,6 @@ export class CategoryController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateCategoryDto,
   ): Promise<CategoryDto> {
-    return this.categories.update(actor.id, id, dto.name, dto.isActive);
+    return this.categories.update(actor.id, id, dto.name, dto.isActive, dto.icon, dto.color);
   }
 }

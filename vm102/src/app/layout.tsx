@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { CartProvider } from "@/components/cart/CartProvider";
@@ -13,6 +13,13 @@ const notoSansThai = Noto_Sans_Thai({
   subsets: ["thai", "latin"],
   weight: ["300", "400", "500", "600", "700"],
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
 
 export const metadata: Metadata = {
   title: "VRU Marketplace - แหล่งรวมสินค้าชุมชนออนไลน์",
@@ -33,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
       </head>
-      <body className="text-vru-dark font-sans pb-16 md:pb-0 antialiased">
+      <body className="text-vru-dark font-sans pb-16 md:pb-0 antialiased overflow-x-hidden w-full max-w-full">
         <AuthProvider>
           <SocketProvider>
             <BadgeProvider>

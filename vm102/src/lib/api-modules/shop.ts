@@ -61,6 +61,7 @@ export const shopApi = {
   getFollowStatus: (id: string) => api.get<{ followerCount: number; isFollowing: boolean }>(`/shops/${id}/follow-status`),
   follow: (id: string) => api.post<{ success: boolean }>(`/shops/${id}/follow`, {}),
   unfollow: (id: string) => api.delete<{ success: boolean }>(`/shops/${id}/follow`),
+  getFollowedShops: () => api.get<PublicShopDto[]>("/shops/me/following"),
 };
 
 export interface ShopStatsDto {

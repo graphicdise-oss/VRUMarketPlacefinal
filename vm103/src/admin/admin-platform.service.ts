@@ -181,15 +181,19 @@ export class AdminPlatformService {
     }
 
     if (targetUsers.length > 0) {
-      await Promise.all(
-        targetUsers.map((user) =>
-          this.notifications.notify({
-            userId: user.id,
-            type: 'PLATFORM_ANNOUNCEMENT',
-            message,
-          }),
-        ),
-      );
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < targetUsers.length; i += BATCH_SIZE) {
+        const batch = targetUsers.slice(i, i + BATCH_SIZE);
+        await Promise.all(
+          batch.map((user) =>
+            this.notifications.notify({
+              userId: user.id,
+              type: 'PLATFORM_ANNOUNCEMENT',
+              message,
+            }),
+          ),
+        );
+      }
     }
 
     await this.audit.record({

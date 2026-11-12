@@ -801,6 +801,30 @@ export class ShopService {
       }
     }
   }
+
+  async listFollowedShops(userId: string): Promise<ShopDto[]> {
+    const follows = await this.prisma.shopFollow.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        shop: {
+          include: {
+            owner: { select: { disputeLostCount: true, bannedAt: true } },
+            community: { select: { name: true } },
+            _count: { select: { products: { where: { moderationStatus: 'APPROVED' } } } },
+          },
+        },
+      },
+    });
+
+    const shops = follows
+      .map((f) => f.shop)
+      .filter((s) => s.approvalStatus === 'APPROVED' && s.closedAt === null);
+
+    const statsByShopId = await this.reviewStatsFor(shops);
+
+    return shops.map((s) => ShopDto.from(s, statsByShopId.get(s.id) ?? EMPTY_REVIEW_STATS));
+  }
 }
 
 /**

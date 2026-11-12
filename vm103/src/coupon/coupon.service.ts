@@ -43,9 +43,8 @@ export class CouponService {
     const shop = await this.requireOwnerShop(ownerId);
     const now = this.clock.now();
 
-    // eslint-disable-next-line no-restricted-syntax -- parsing date string from DTO
+    // Parsing date strings from DTO
     const startDate = new Date(dto.startDate);
-    // eslint-disable-next-line no-restricted-syntax -- parsing date string from DTO
     const endDate = new Date(dto.endDate);
 
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
@@ -144,7 +143,7 @@ export class CouponService {
 
     let endDate: Date | undefined;
     if (dto.endDate) {
-      // eslint-disable-next-line no-restricted-syntax -- parsing date string from DTO
+      // Parsing date string from DTO
       endDate = new Date(dto.endDate);
       if (isNaN(endDate.getTime())) {
         throw new AppException('VALIDATION_FAILED', { message: 'รูปแบบวันหมดอายุไม่ถูกต้อง' });

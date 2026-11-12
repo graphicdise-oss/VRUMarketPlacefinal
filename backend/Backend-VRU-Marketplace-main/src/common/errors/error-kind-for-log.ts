@@ -64,7 +64,7 @@ export function describeErrorForLog(thrown: unknown, depth = 0): string {
       header += `: ${thrown.message.slice(0, 200)}`;
     }
 
-    // eslint-disable-next-line no-restricted-syntax -- the one place a stack is read (see above)
+    // The one place a stack is read (see above).
     const frames = (typeof thrown.stack === 'string' ? thrown.stack.split('\n') : [])
       .filter((line) => /^\s+at /.test(line))
       .slice(0, MAX_LOGGED_FRAMES);

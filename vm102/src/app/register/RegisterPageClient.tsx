@@ -179,7 +179,7 @@ export default function RegisterPageClient() {
                   <input type="checkbox" required className="h-4 w-4 mt-0.5 text-[#16A085] focus:ring-[#16A085] border-gray-300 rounded" />
                   <label className="ml-2 text-xs text-gray-500 leading-tight">
                     ฉันมีอายุ 20 ปีขึ้นไป หรือผู้ปกครองรับทราบและยินยอมแล้ว<br/>
-                    และฉันยอมรับ <a href="#" className="font-bold text-[#16A085] hover:underline">ข้อกำหนดการใช้งาน</a> และ <a href="#" className="font-bold text-[#16A085] hover:underline">นโยบายความเป็นส่วนตัว</a>
+                    และฉันยอมรับ <Link href="/terms" target="_blank" className="font-bold text-[#16A085] hover:underline">ข้อกำหนดการใช้งาน</Link> และ <Link href="/privacy" target="_blank" className="font-bold text-[#16A085] hover:underline">นโยบายความเป็นส่วนตัว</Link>
                   </label>
                 </div>
 

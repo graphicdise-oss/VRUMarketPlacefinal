@@ -5,40 +5,42 @@ import { useRouter, usePathname } from "next/navigation";
 import { productApi } from "@/lib/api";
 import { mapPublicProductDto } from "@/lib/product-mapper";
 import { formatPrice } from "@/lib/utils";
+import { matchesProductSearch } from "@/lib/search-matcher";
 import type { Product } from "@/types";
 
-// Curated Popular Community Search Terms
+// Curated Popular Community Search Terms mapped directly to active catalog
 const POPULAR_SEARCH_TERMS = [
-  "ผ้าขาวม้าทอมือ",
-  "ผ้าไหมมัดหมี่",
+  "ผ้าทอมือปทุมธานี",
+  "ผ้าคลุมไหล่ไหมประดิษฐ์",
+  "เสื้อเชิ้ตผ้าฝ้ายเข็นมือ",
   "ผ้าฝ้ายย้อมคราม",
-  "ผ้าคลุมไหล่ทอมือ",
-  "เสื้อผ้าฝ้ายพื้นเมือง",
-  "กล้วยตากพลังงานแสงอาทิตย์",
-  "ข้าวหอมมะลิอินทรีย์",
-  "น้ำผึ้งแท้ดอกไม้ป่า",
-  "ชาเกสรบัวหลวง",
-  "น้ำพริกเผาโบราณ",
-  "เมลอนหวานกรอบ",
-  "ส้มโอขาวแตงกวา",
-  "สบู่สมุนไพรเปลือกมังคุด",
-  "เซรั่มน้ำมันมะพร้าวสกัดเย็น",
-  "สเปรย์ตะไคร้หอมกันยุง",
-  "บาล์มสมุนไพรไพลสด",
-  "กระเป๋ากระจูดสาน",
-  "ตะกร้าหวายหัตถกรรม",
-  "กล่องทิชชู่จักสาน",
-  "เทียนหอมอโรมาสมุนไพร",
+  "ข้าวหอมมะลิ 105",
+  "ข้าวอินทรีย์ทุ่งวไลย",
+  "กล้วยหอมทองอบกรอบ",
+  "น้ำพริกเผาเห็ดหอม",
+  "ชาเกสรดอกบัวหลวง",
+  "น้ำมัลเบอร์รี่อินทรีย์",
+  "ส้มสายน้ำผึ้งอินทรีย์",
+  "เมลอนญี่ปุ่นเนื้อเขียว",
+  "ผักสลัดไฮโดรโปนิกส์",
+  "สบู่เปลือกมังคุด",
+  "เซรั่มบำรุงผิวน้ำมันมะพร้าว",
+  "สเปรย์กันยุงตะไคร้หอม",
+  "กระเป๋าสานกระจูด",
+  "กล่องทิชชู่งานจักสาน",
+  "ตะกร้าหวายเก็บของ",
+  "เทียนหอมไขถั่วเหลือง",
+  "คอมบูชาโพรไบโอติกส์",
 ];
 
-// Trending keywords when input is empty
-const TRENDING_KEYWORDS = [
-  "ผ้าขาวม้า",
+// Default Trending keywords fallback (guaranteed to match showcase products)
+const DEFAULT_TRENDING_KEYWORDS = [
+  "ข้าวหอมมะลิ",
+  "ผ้าทอมือ",
   "สบู่สมุนไพร",
-  "น้ำผึ้งแท้",
-  "ข้าวอินทรีย์",
-  "ชาเกสรบัว",
   "กระเป๋ากระจูด",
+  "ชาเกสรบัวหลวง",
+  "น้ำพริกเผา",
 ];
 
 function highlightMatch(text: string, query: string) {
@@ -65,9 +67,25 @@ export default function SearchAutocomplete() {
   const [isOpen, setIsOpen] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [isProductsLoaded, setIsProductsLoaded] = useState(false);
+  const [trendingKeywords, setTrendingKeywords] = useState<string[]>(DEFAULT_TRENDING_KEYWORDS);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch dynamic trending keywords from analytics, fallback to curated list
+  useEffect(() => {
+    let isMounted = true;
+    productApi.getTrendingKeywords().then((keywords) => {
+      if (isMounted && keywords && keywords.length > 0) {
+        setTrendingKeywords(keywords);
+      }
+    }).catch(() => {
+      // Keep DEFAULT_TRENDING_KEYWORDS
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Sync keyword from URL search parameters if on /products
   useEffect(() => {
@@ -126,7 +144,7 @@ export default function SearchAutocomplete() {
 
     // 1. Check curated popular terms
     for (const term of POPULAR_SEARCH_TERMS) {
-      if (term.toLowerCase().includes(q) && !seen.has(term.toLowerCase())) {
+      if (matchesProductSearch({ name: term }, q) && !seen.has(term.toLowerCase())) {
         seen.add(term.toLowerCase());
         results.push(term);
         if (results.length >= 3) break;
@@ -136,7 +154,7 @@ export default function SearchAutocomplete() {
     // 2. Check product names
     if (results.length < 3) {
       for (const p of products) {
-        if (p.name.toLowerCase().includes(q) && !seen.has(p.name.toLowerCase())) {
+        if (matchesProductSearch(p, q) && !seen.has(p.name.toLowerCase())) {
           seen.add(p.name.toLowerCase());
           results.push(p.name);
           if (results.length >= 3) break;
@@ -150,31 +168,15 @@ export default function SearchAutocomplete() {
   // Section 2: Top 3-4 Product Previews
   const productSuggestions = useMemo(() => {
     if (!debouncedQuery) return [];
-    const q = debouncedQuery.toLowerCase();
-
     return products
-      .filter((p) => {
-        const matchName = p.name?.toLowerCase().includes(q);
-        const matchDesc = p.description?.toLowerCase().includes(q);
-        const matchShop = p.shopName?.toLowerCase().includes(q);
-        const matchCat = p.categoryName?.toLowerCase().includes(q);
-        return matchName || matchDesc || matchShop || matchCat;
-      })
+      .filter((p) => matchesProductSearch(p, debouncedQuery))
       .slice(0, 4);
   }, [debouncedQuery, products]);
 
   // Total matching count
   const totalMatchesCount = useMemo(() => {
     if (!debouncedQuery) return 0;
-    const q = debouncedQuery.toLowerCase();
-    return products.filter((p) => {
-      return (
-        p.name?.toLowerCase().includes(q) ||
-        p.description?.toLowerCase().includes(q) ||
-        p.shopName?.toLowerCase().includes(q) ||
-        p.categoryName?.toLowerCase().includes(q)
-      );
-    }).length;
+    return products.filter((p) => matchesProductSearch(p, debouncedQuery)).length;
   }, [debouncedQuery, products]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -244,7 +246,7 @@ export default function SearchAutocomplete() {
                 <span>คำค้นหายอดนิยม</span>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {TRENDING_KEYWORDS.map((kw) => (
+                {trendingKeywords.map((kw) => (
                   <button
                     key={kw}
                     type="button"

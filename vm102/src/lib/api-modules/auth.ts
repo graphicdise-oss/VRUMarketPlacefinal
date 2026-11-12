@@ -11,4 +11,8 @@ export const authApi = {
   login: (credentials: { email: string; password: string }) => api.post<{ id: string; email: string; role: string; emailVerified: boolean }>("/auth/login", credentials),
   register: (data: { email: string; password: string; acceptedPrivacyPolicyVersion: string; acceptedTermsOfServiceVersion: string; confirmedAgeOrGuardianConsent: true }) => api.post("/auth/register", data),
   logout: () => api.post("/auth/logout"),
+  verifyEmail: (token: string) => api.post<void>("/auth/verify-email", { token }),
+  resendVerification: (email: string) => api.post<void>("/auth/resend-verification", { email }),
+  forgotPassword: (email: string) => api.post<void>("/auth/password/forgot", { email }),
+  resetPassword: (data: { token: string; password: string }) => api.post<void>("/auth/password/reset", data),
 };

@@ -3,6 +3,7 @@
 import { useAuth } from "@/lib/auth-context";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import MobileNav from "@/components/layout/MobileNav";
 import ProfileSidebar from "../components/ProfileSidebar";
 import Link from "next/link";
 import { useState, useEffect } from "react";
@@ -64,7 +65,7 @@ export default function ReviewsClient() {
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Header />
       
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 pt-4 pb-8 flex flex-col md:flex-row gap-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-24 md:pb-8 flex flex-col md:flex-row gap-6 md:gap-8">
         
         {/* Sidebar */}
         <ProfileSidebar name={user?.displayName || ""} avatarUrl={null} />
@@ -182,6 +183,7 @@ export default function ReviewsClient() {
       </main>
 
       <Footer />
+      <MobileNav />
     </div>
   );
 }

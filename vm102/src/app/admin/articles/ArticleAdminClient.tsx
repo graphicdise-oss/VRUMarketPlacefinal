@@ -1,10 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { articleApi, Article, CreateArticleDto, UpdateArticleDto } from "@/lib/api-modules/article";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { articleApi, Article, CreateArticleDto } from "@/lib/api-modules/article";
+import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
 
 export default function ArticleAdminClient() {
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const router = useRouter();
   const [articles, setArticles] = useState<Article[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -24,7 +28,13 @@ export default function ArticleAdminClient() {
     tags: [],
   });
 
-  const loadArticles = async () => {
+  useEffect(() => {
+    if (!isAuthLoading && (!user || user.role !== "SUPER_ADMIN")) {
+      router.push("/login?callbackUrl=/admin/articles");
+    }
+  }, [user, isAuthLoading, router]);
+
+  const loadArticles = useCallback(async () => {
     setIsLoading(true);
     try {
       const { items } = await articleApi.list({ limit: 100 });
@@ -35,11 +45,13 @@ export default function ArticleAdminClient() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
-    loadArticles();
-  }, []);
+    if (!isAuthLoading && user?.role === "SUPER_ADMIN") {
+      loadArticles();
+    }
+  }, [isAuthLoading, user, loadArticles]);
 
   const handleOpenModal = (article?: Article) => {
     if (article) {
@@ -101,7 +113,7 @@ export default function ArticleAdminClient() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("คุณแน่ใจหรือไม่ที่จะลบบทความนี้?")) return;
-    
+
     try {
       await articleApi.delete(id);
       showToast("ลบบทความสำเร็จ", "success");
@@ -117,29 +129,27 @@ export default function ArticleAdminClient() {
     if (!file) return;
 
     setIsUploading(true);
-    const uploadData = new FormData();
-    uploadData.append("file", file);
-
     try {
-      const response = await fetch("/api/upload/articles", {
-        method: "POST",
-        body: uploadData,
-      });
-
-      if (!response.ok) throw new Error("Upload failed");
-
-      const data = await response.json();
-      setFormData({ ...formData, image: data.url });
+      const data = await articleApi.uploadImage(file);
+      setFormData(prev => ({ ...prev, image: data.url }));
       showToast("อัปโหลดรูปภาพสำเร็จ", "success");
     } catch (error) {
       console.error("Error uploading image:", error);
-      showToast("ไม่สามารถอัปโหลดรูปภาพได้", "error");
+      showToast("ไม่สามารถอัปโหลดรูปภาพได้ (รองรับเฉพาะไฟล์ JPG หรือ PNG)", "error");
     } finally {
       setIsUploading(false);
     }
   };
 
   const CATEGORIES = ["ภูมิปัญญา", "นวัตกรรม", "เกษตรกรรม", "สัมภาษณ์", "งานฝีมือ", "สินค้าชุมชน", "แฟชั่น & หัตถกรรม"];
+
+  if (isAuthLoading || !user || user.role !== "SUPER_ADMIN") {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#16A085]"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -185,14 +195,14 @@ export default function ArticleAdminClient() {
                   </span>
                 </div>
               </div>
-              
+
               <div className="p-5 flex flex-col flex-grow">
                 <div className="mb-4 flex-grow">
                   <h3 className="font-bold text-gray-800 line-clamp-2">{article.title}</h3>
                   <p className="text-sm text-gray-500 mt-2 line-clamp-2">{article.excerpt}</p>
                   <p className="text-xs text-gray-400 mt-3"><i className="fa-regular fa-user"></i> {article.authorName}</p>
                 </div>
-                
+
                 <div className="flex gap-2 mt-auto">
                   <button
                     onClick={() => handleOpenModal(article)}
@@ -225,7 +235,7 @@ export default function ArticleAdminClient() {
                 <i className="fa-solid fa-xmark"></i>
               </button>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
               <div className="space-y-6">
                 <div>
@@ -234,7 +244,7 @@ export default function ArticleAdminClient() {
                     type="text"
                     required
                     value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                   />
                 </div>
@@ -244,7 +254,7 @@ export default function ArticleAdminClient() {
                     <label className="block text-sm font-bold text-gray-700 mb-2">หมวดหมู่ (Category)</label>
                     <select
                       value={formData.category}
-                      onChange={(e) => setFormData({...formData, category: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none bg-white"
                     >
                       {CATEGORIES.map(cat => (
@@ -258,7 +268,7 @@ export default function ArticleAdminClient() {
                       type="text"
                       required
                       value={formData.authorName}
-                      onChange={(e) => setFormData({...formData, authorName: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, authorName: e.target.value })}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                     />
                   </div>
@@ -266,7 +276,7 @@ export default function ArticleAdminClient() {
 
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">รูปภาพหน้าปก</label>
-                  
+
                   <div className="flex gap-4 items-start">
                     {/* Image Preview */}
                     <div className="w-32 h-32 bg-gray-100 rounded-xl overflow-hidden flex-shrink-0 border border-gray-200 flex items-center justify-center">
@@ -276,26 +286,26 @@ export default function ArticleAdminClient() {
                         <i className="fa-regular fa-image text-3xl text-gray-400"></i>
                       )}
                     </div>
-                    
+
                     <div className="flex-grow space-y-3">
                       <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">อัปโหลดจากเครื่อง</label>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">อัปโหลดจากเครื่อง (JPG หรือ PNG)</label>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/png"
                           onChange={handleImageUpload}
                           disabled={isUploading}
                           className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#16A085]/10 file:text-[#16A085] hover:file:bg-[#16A085]/20 transition-all cursor-pointer"
                         />
                         {isUploading && <span className="text-xs text-[#16A085] mt-1 block animate-pulse">กำลังอัปโหลด...</span>}
                       </div>
-                      
+
                       <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">หรือระบุ URL รูปภาพ (ถ้ามี)</label>
                         <input
                           type="text"
                           value={formData.image || ""}
-                          onChange={(e) => setFormData({...formData, image: e.target.value})}
+                          onChange={(e) => setFormData({ ...formData, image: e.target.value })}
                           placeholder="เช่น https://..."
                           className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none transition text-sm"
                         />
@@ -308,7 +318,7 @@ export default function ArticleAdminClient() {
                   <label className="block text-sm font-bold text-gray-700 mb-2">คำโปรย (Excerpt)</label>
                   <textarea
                     value={formData.excerpt || ""}
-                    onChange={(e) => setFormData({...formData, excerpt: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, excerpt: e.target.value })}
                     rows={2}
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none resize-none"
                   />
@@ -319,7 +329,7 @@ export default function ArticleAdminClient() {
                   <textarea
                     required
                     value={formData.content}
-                    onChange={(e) => setFormData({...formData, content: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                     rows={8}
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                     placeholder="รองรับ HTML หรือข้อความธรรมดา..."

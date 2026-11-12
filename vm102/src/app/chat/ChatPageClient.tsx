@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useAuth } from "@/lib/auth-context";
 import { useSocket } from "@/lib/socket-context";
 import { useBadge } from "@/lib/badge-context";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 export interface ChatContact {
   id: string;
   otherUserId?: string;
@@ -117,15 +117,21 @@ export default function ChatPageClient() {
   const { socket, isConnected } = useSocket();
   const { refreshChat } = useBadge();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const shopIdParam = searchParams?.get("shopId");
+  const roomIdParam = searchParams?.get("roomId");
 
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const [activeContactId, setActiveContactId] = useState<string>("");
+  const [contactSearch, setContactSearch] = useState("");
   const [wsStatus, setWsStatus] = useState<"CONNECTED" | "CONNECTING" | "DISCONNECTED">("CONNECTING");
   const [chatHistories, setChatHistories] = useState<Record<string, ChatMessage[]>>({});
   const [inputText, setInputText] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const quickEmojis = ["😊", "🙏", "👍", "❤️", "📦", "✨", "👋", "🎉", "🔥", "💯"];
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Realtime typing & presence
@@ -159,6 +165,23 @@ export default function ChatPageClient() {
     setWsStatus(isConnected ? "CONNECTED" : "DISCONNECTED");
   }, [isConnected]);
 
+  // Open room directly if shopId parameter is given
+  useEffect(() => {
+    if (isAuthenticated && isConnected && socket && shopIdParam) {
+      socket.emit("openRoomWithShop", { shopId: shopIdParam }, (response: AckResponse<ChatRoomSummaryDto>) => {
+        if (response.ok && response.data?.id) {
+          setActiveContactId(response.data.id);
+        }
+      });
+    }
+  }, [isAuthenticated, isConnected, socket, shopIdParam]);
+
+  useEffect(() => {
+    if (roomIdParam) {
+      setActiveContactId(roomIdParam);
+    }
+  }, [roomIdParam]);
+
   // Load Contacts
   useEffect(() => {
     if (isAuthenticated && isConnected && socket) {
@@ -183,13 +206,16 @@ export default function ChatPageClient() {
             };
           });
           setContacts(fetchedContacts);
-          if (fetchedContacts.length > 0 && !activeContactId) {
-            setActiveContactId(fetchedContacts[0].id);
+          // Auto-select on desktop ONLY if screen is large and no specific shop/room requested
+          if (fetchedContacts.length > 0 && !activeContactId && !shopIdParam && !roomIdParam) {
+            if (typeof window !== "undefined" && window.innerWidth >= 768) {
+              setActiveContactId(fetchedContacts[0].id);
+            }
           }
         }
       });
     }
-  }, [isAuthenticated, isConnected, socket, currentUserChatRole, activeContactId]);
+  }, [isAuthenticated, isConnected, socket, currentUserChatRole, activeContactId, shopIdParam, roomIdParam]);
 
   // Load Chat History when active room changes
   useEffect(() => {
@@ -302,6 +328,14 @@ export default function ChatPageClient() {
     setSettings(newSettings);
     localStorage.setItem("vru_chat_settings", JSON.stringify(newSettings));
   };
+
+  const filteredContacts = useMemo(() => {
+    if (!contactSearch.trim()) return contacts;
+    const q = contactSearch.toLowerCase();
+    return contacts.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q)
+    );
+  }, [contacts, contactSearch]);
 
   const rawMessages = useMemo(() => chatHistories[activeContactId] || [], [chatHistories, activeContactId]);
   const messages = useMemo(() => {
@@ -487,7 +521,7 @@ export default function ChatPageClient() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden p-0 md:p-4">
       {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-gray-100 flex-shrink-0 z-10 md:rounded-t-[1.5rem] shadow-sm">
+      <header className="bg-white/80 backdrop-blur-md border-b border-gray-100 flex-shrink-0 z-10 md:rounded-t-[1.5rem] shadow-sm hidden md:block">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2 group transition">
             <div className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 transition text-gray-500 mr-2">
@@ -518,98 +552,196 @@ export default function ChatPageClient() {
       {/* Chat Container */}
       <main className="flex-grow flex overflow-hidden max-w-7xl mx-auto w-full bg-white md:rounded-b-[1.5rem] shadow-lg border border-gray-100 border-t-0">
         {/* Left Sidebar - Contact List */}
-        <div className="w-full md:w-80 border-r border-gray-100 flex flex-col hidden md:flex bg-white">
-          <div className="p-4 border-b border-gray-100 bg-gray-50/50">
+        <div className={`w-full md:w-80 border-r border-gray-100 flex-col bg-white flex-shrink-0 ${
+          activeContactId ? "hidden md:flex" : "flex"
+        }`}>
+          {/* Mobile Header for Contact List */}
+          <div className="md:hidden px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-100 transition cursor-pointer"
+                aria-label="ย้อนกลับ"
+              >
+                <i className="fa-solid fa-arrow-left text-sm"></i>
+              </button>
+              <div>
+                <h1 className="font-bold text-gray-800 text-base leading-none">ข้อความแชท</h1>
+                <p className="text-[10px] text-gray-400 mt-0.5">การสนทนากับร้านค้า</p>
+              </div>
+            </div>
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+              wsStatus === "CONNECTED" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${wsStatus === "CONNECTED" ? "bg-green-500" : "bg-red-500"}`}></span>
+              <span>{wsStatus === "CONNECTED" ? "ออนไลน์" : "ออฟไลน์"}</span>
+            </div>
+          </div>
+
+          <div className="p-3 md:p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
             <div className="relative">
-              <input type="text" placeholder="ค้นหาร้านค้า..." className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-vru-blue/20 focus:border-vru-blue transition shadow-sm" />
+              <input 
+                type="text" 
+                placeholder="ค้นหาร้านค้า..." 
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-8 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-vru-blue/20 focus:border-vru-blue transition shadow-sm" 
+              />
               <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+              {contactSearch && (
+                <button
+                  type="button"
+                  onClick={() => setContactSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              )}
             </div>
           </div>
           <div className="flex-grow overflow-y-auto">
-            {contacts.map((contact) => (
-              <div 
-                key={contact.id} 
-                onClick={() => setActiveContactId(contact.id)}
-                className={`p-4 border-b border-gray-50 flex items-start gap-3 cursor-pointer transition ${activeContactId === contact.id ? "bg-blue-50/50 border-l-4 border-l-vru-blue" : "hover:bg-gray-50"}`}>
-                <div className="relative">
-                  <img 
-                    src={contact.avatar} 
-                    alt={contact.name} 
-                    className="w-12 h-12 rounded-full object-cover shadow-sm border border-gray-200" 
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(contact.name)}&background=0D5C75&color=fff`;
-                    }}
-                  />
-                  <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-2 border-white rounded-full ${contact.isOnline ? "bg-green-500" : "bg-gray-300"}`}></span>
+            {filteredContacts.length === 0 ? (
+              <div className="py-12 px-4 text-center text-gray-400 flex flex-col items-center justify-center">
+                <div className="w-14 h-14 rounded-full bg-gray-50 flex items-center justify-center text-2xl text-gray-300 mb-2">
+                  <i className="fa-regular fa-comments"></i>
                 </div>
-                <div className="flex-grow min-w-0 mt-0.5">
-                  <div className="flex justify-between items-start mb-1">
-                    <h3 className={`text-sm truncate pr-2 ${activeContactId === contact.id ? "font-bold text-gray-900" : "font-semibold text-gray-700"}`}>{contact.name}</h3>
-                    <span className="text-[10px] text-gray-400 whitespace-nowrap font-medium">{contact.time}</span>
-                  </div>
-                  <p className={`text-xs truncate ${contact.unread > 0 && activeContactId !== contact.id ? "font-bold text-gray-800" : "text-gray-500"}`}>{contact.lastMessage}</p>
-                </div>
-                {contact.unread > 0 && activeContactId !== contact.id && (
-                  <div className="w-5 h-5 bg-vru-blue rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm flex-shrink-0 mt-1">
-                    {contact.unread}
-                  </div>
+                <p className="font-bold text-gray-700 text-sm mb-1">
+                  {contactSearch ? "ไม่พบร้านค้าที่ค้นหา" : "ยังไม่มีข้อความแชท"}
+                </p>
+                <p className="text-xs text-gray-400 max-w-xs mb-3">
+                  {contactSearch ? "ลองค้นหาด้วยชื่ออื่น" : "เมื่อคุณส่งข้อความคุยกับร้านค้า ประวัติจะแสดงที่นี่"}
+                </p>
+                {!contactSearch && (
+                  <Link
+                    href="/products"
+                    className="px-4 py-2 bg-[#16A085] hover:bg-[#117A65] text-white text-xs font-bold rounded-full transition shadow-xs"
+                  >
+                    เลือกดูสินค้าชุมชน
+                  </Link>
                 )}
               </div>
-            ))}
+            ) : (
+              filteredContacts.map((contact) => (
+                <div 
+                  key={contact.id} 
+                  onClick={() => setActiveContactId(contact.id)}
+                  className={`p-4 border-b border-gray-50 flex items-start gap-3 cursor-pointer transition ${activeContactId === contact.id ? "bg-blue-50/50 border-l-4 border-l-vru-blue" : "hover:bg-gray-50"}`}>
+                  <div className="relative">
+                    <img 
+                      src={contact.avatar} 
+                      alt={contact.name} 
+                      className="w-12 h-12 rounded-full object-cover shadow-sm border border-gray-200" 
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(contact.name)}&background=0D5C75&color=fff`;
+                      }}
+                    />
+                    <span className={`absolute bottom-0 right-0 w-3.5 h-3.5 border-2 border-white rounded-full ${contact.isOnline ? "bg-green-500" : "bg-gray-300"}`}></span>
+                  </div>
+                  <div className="flex-grow min-w-0 mt-0.5">
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 className={`text-sm truncate pr-2 ${activeContactId === contact.id ? "font-bold text-gray-900" : "font-semibold text-gray-700"}`}>{contact.name}</h3>
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap font-medium">{contact.time}</span>
+                    </div>
+                    <p className={`text-xs truncate ${contact.unread > 0 && activeContactId !== contact.id ? "font-bold text-gray-800" : "text-gray-500"}`}>{contact.lastMessage}</p>
+                  </div>
+                  {contact.unread > 0 && activeContactId !== contact.id && (
+                    <div className="w-5 h-5 bg-vru-blue rounded-full flex items-center justify-center text-white text-[10px] font-bold shadow-sm flex-shrink-0 mt-1">
+                      {contact.unread}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
 
         {/* Right - Chat Area */}
-        <div className="flex-grow flex flex-col h-full bg-[#f8faf9] relative">
-          
-          <div className="relative flex flex-col h-full z-10">
-            {/* Chat Header */}
-            <div className="bg-white p-3 md:p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <button className="md:hidden text-gray-400 hover:text-vru-blue p-2 -ml-2"><i className="fa-solid fa-chevron-left"></i></button>
-                <div className="relative">
-                  <img 
-                    src={activeContact?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(activeContact?.name || "Shop")}&background=0D5C75&color=fff`} 
-                    alt={activeContact?.name || "Shop"} 
-                    className="w-10 h-10 rounded-full shadow-sm border border-gray-200 object-cover" 
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(activeContact?.name || "Shop")}&background=0D5C75&color=fff`;
-                    }}
-                  />
-                  <span className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full ${activeContact?.isOnline ? "bg-green-500" : "bg-gray-300"}`}></span>
-                </div>
-                <div>
-                  <h2 className="font-bold text-gray-800 text-sm md:text-base">{activeContact?.name || "บทสนทนา"}</h2>
-                  <p className="text-[10px] md:text-xs text-vru-blue font-medium flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${activeContact?.isOnline ? "bg-vru-blue animate-pulse" : "bg-gray-300"}`}></span> {activeContact?.isOnline ? "ออนไลน์" : "ออฟไลน์"}</p>
-                </div>
+        <div className={`flex-grow flex-col h-full bg-[#f8faf9] relative ${
+          activeContactId ? "flex" : "hidden md:flex"
+        }`}>
+          {!activeContact ? (
+            <div className="flex-grow flex flex-col items-center justify-center p-8 text-center text-gray-400">
+              <div className="w-16 h-16 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center text-3xl text-[#16A085] mb-4">
+                <i className="fa-regular fa-comments"></i>
               </div>
-              <div className="flex items-center gap-1 sm:gap-2">
-                <button 
-                  onClick={() => setIsSearching(!isSearching)} 
-                  title="ค้นหาข้อความ" 
-                  className={`text-gray-500 hover:text-vru-blue hover:bg-blue-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2.5 py-1.5 rounded-full ${isSearching ? "text-vru-blue border-vru-blue bg-blue-50" : ""}`}
-                >
-                  <i className="fa-solid fa-magnifying-glass"></i>
-                </button>
-                <button 
-                  onClick={handleClearRoom} 
-                  title="ล้างประวัติการสนทนาสำหรับฉัน" 
-                  className="text-gray-500 hover:text-red-500 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2.5 py-1.5 rounded-full hidden sm:inline-flex"
-                >
-                  <i className="fa-regular fa-trash-can"></i>
-                </button>
-                <button 
-                  onClick={handleToggleBlock} 
-                  title={isBlocked ? "ปลดบล็อกผู้ใช้นี้" : "บล็อกผู้ใช้นี้"} 
-                  className={`transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2.5 py-1.5 rounded-full hidden sm:inline-flex ${isBlocked ? "text-red-600 bg-red-50 border-red-300" : "text-gray-500 hover:text-red-600 hover:bg-red-50"}`}
-                >
-                  <i className="fa-solid fa-ban"></i>
-                </button>
-                <button onClick={() => setIsSettingsModalOpen(true)} className="text-gray-500 hover:text-vru-blue hover:bg-blue-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2 sm:px-3 py-1.5 rounded-full"><i className="fa-solid fa-gear sm:mr-1"></i> <span className="hidden sm:inline">ตั้งค่า</span></button>
-                <button onClick={() => setIsReportModalOpen(true)} className="text-gray-500 hover:text-red-600 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2 sm:px-3 py-1.5 rounded-full"><i className="fa-solid fa-flag sm:mr-1"></i> <span className="hidden sm:inline">รายงาน</span></button>
-                <Link href={activeContact?.id ? `/shops/${activeContact.id}` : "#"} className="hover:text-vru-blue hover:bg-blue-50 transition text-[10px] sm:text-xs font-bold border border-gray-200 bg-white shadow-sm px-2 sm:px-3 py-1.5 rounded-full whitespace-nowrap"><i className="fa-solid fa-store sm:mr-1"></i> <span className="hidden sm:inline">หน้าร้าน</span></Link>
-              </div>
+              <h3 className="font-bold text-gray-700 text-base mb-1">เลือกบทสนทนา</h3>
+              <p className="text-xs text-gray-400 max-w-xs">
+                เลือกร้านค้าจากรายการด้านซ้ายเพื่อดูข้อความหรือเริ่มสนทนา
+              </p>
             </div>
+          ) : (
+            <div className="relative flex flex-col h-full z-10">
+              {/* Chat Header */}
+              <div className="bg-white p-2.5 sm:p-3 md:p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0 gap-2">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (contacts.length > 0) {
+                        setActiveContactId("");
+                      } else {
+                        router.back();
+                      }
+                    }}
+                    className="md:hidden text-gray-600 hover:text-vru-blue hover:bg-gray-100 p-1.5 -ml-1 rounded-xl flex items-center justify-center transition cursor-pointer flex-shrink-0"
+                    title="กลับไปรายชื่อแชท"
+                    aria-label="กลับไปรายชื่อแชท"
+                  >
+                    <i className="fa-solid fa-chevron-left text-base"></i>
+                  </button>
+                  <div className="relative flex-shrink-0">
+                    <img 
+                      src={activeContact.avatar} 
+                      alt={activeContact.name} 
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-full shadow-2xs border border-gray-200 object-cover" 
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(activeContact.name)}&background=0D5C75&color=fff`;
+                      }}
+                    />
+                    <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 border-2 border-white rounded-full ${activeContact.isOnline ? "bg-green-500" : "bg-gray-300"}`}></span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-bold text-gray-800 text-xs sm:text-sm md:text-base leading-tight truncate">{activeContact.name}</h2>
+                    <p className="text-[10px] md:text-xs text-vru-blue font-medium flex items-center gap-1 mt-0.5"><span className={`w-1.5 h-1.5 rounded-full ${activeContact.isOnline ? "bg-vru-blue animate-pulse" : "bg-gray-300"}`}></span> {activeContact.isOnline ? "ออนไลน์" : "ออฟไลน์"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                  <button 
+                    onClick={() => setIsSearching(!isSearching)} 
+                    title="ค้นหาข้อความ" 
+                    className={`text-gray-500 hover:text-vru-blue hover:bg-blue-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs p-1.5 sm:px-2.5 sm:py-1.5 rounded-full ${isSearching ? "text-vru-blue border-vru-blue bg-blue-50" : ""}`}
+                  >
+                    <i className="fa-solid fa-magnifying-glass text-xs"></i>
+                  </button>
+                  <button 
+                    onClick={handleClearRoom} 
+                    title="ล้างประวัติการสนทนาสำหรับฉัน" 
+                    className="text-gray-500 hover:text-red-500 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2.5 py-1.5 rounded-full hidden sm:inline-flex"
+                  >
+                    <i className="fa-regular fa-trash-can"></i>
+                  </button>
+                  <button 
+                    onClick={handleToggleBlock} 
+                    title={isBlocked ? "ปลดบล็อกผู้ใช้นี้" : "บล็อกผู้ใช้นี้"} 
+                    className={`transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2.5 py-1.5 rounded-full hidden sm:inline-flex ${isBlocked ? "text-red-600 bg-red-50 border-red-300" : "text-gray-500 hover:text-red-600 hover:bg-red-50"}`}
+                  >
+                    <i className="fa-solid fa-ban"></i>
+                  </button>
+                  <button onClick={() => setIsSettingsModalOpen(true)} className="text-gray-500 hover:text-vru-blue hover:bg-blue-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2 sm:px-3 py-1.5 rounded-full hidden sm:inline-flex"><i className="fa-solid fa-gear sm:mr-1"></i> <span className="hidden sm:inline">ตั้งค่า</span></button>
+                  <button onClick={() => setIsReportModalOpen(true)} className="text-gray-500 hover:text-red-600 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2 sm:px-3 py-1.5 rounded-full hidden sm:inline-flex"><i className="fa-solid fa-flag sm:mr-1"></i> <span className="hidden sm:inline">รายงาน</span></button>
+                  <Link href={activeContact.id ? `/shops/${activeContact.id}` : "#"} className="hover:text-vru-blue hover:bg-blue-50 transition text-[11px] sm:text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2 sm:px-3 py-1.5 rounded-full whitespace-nowrap flex items-center gap-1"><i className="fa-solid fa-store text-xs"></i> <span className="hidden sm:inline">หน้าร้าน</span></Link>
+                  <Link 
+                    href="/" 
+                    className="md:hidden text-gray-500 hover:text-vru-blue hover:bg-blue-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs p-1.5 rounded-full flex items-center justify-center" 
+                    title="กลับหน้าหลัก"
+                    aria-label="กลับหน้าหลัก"
+                  >
+                    <i className="fa-solid fa-house text-xs"></i>
+                  </Link>
+                </div>
+              </div>
+
 
             {/* In-chat Search Input Bar */}
             {isSearching && (
@@ -763,7 +895,22 @@ export default function ChatPageClient() {
                   )}
                 </div>
               )}
-              <form onSubmit={handleSendMessage} className={`p-3 md:p-4 ${selectedImage ? 'pt-2' : ''}`}>
+              {showEmojiPicker && (
+                <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                  <span className="text-[11px] text-gray-400 font-bold whitespace-nowrap">อีโมจิ:</span>
+                  {quickEmojis.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => setInputText((prev) => prev + emoji)}
+                      className="text-lg hover:scale-125 transition-transform p-1 cursor-pointer flex-shrink-0"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <form onSubmit={(e) => { setShowEmojiPicker(false); handleSendMessage(e); }} className={`p-3 md:p-4 ${selectedImage ? 'pt-2' : ''}`}>
                 <input type="file" accept="image/jpeg,image/png" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
                 <div className="flex items-center gap-2 md:gap-3">
                   <button type="button" onClick={() => fileInputRef.current?.click()} className="text-gray-400 hover:text-vru-blue transition p-2 rounded-full hover:bg-blue-50" title="แนบรูปภาพ (JPG/PNG)"><i className="fa-solid fa-image text-xl"></i></button>
@@ -776,7 +923,17 @@ export default function ChatPageClient() {
                       placeholder={isUploading ? "กำลังอัปโหลดรูป..." : (wsStatus === "CONNECTED" ? "พิมพ์ข้อความ..." : "รอการเชื่อมต่อ...")} 
                       className="w-full bg-gray-50 border border-gray-200 rounded-full pl-5 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-vru-blue/20 focus:border-vru-blue transition disabled:opacity-50 shadow-inner" 
                     />
-                    <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-vru-blue p-1 transition"><i className="fa-regular fa-face-smile text-lg"></i></button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 transition cursor-pointer ${
+                        showEmojiPicker ? "text-vru-blue" : "text-gray-400 hover:text-vru-blue"
+                      }`}
+                      title="แทรกอีโมจิ"
+                      aria-label="แทรกอีโมจิ"
+                    >
+                      <i className="fa-regular fa-face-smile text-lg"></i>
+                    </button>
                   </div>
                   <button type="submit" disabled={(!inputText.trim() && !selectedFile) || wsStatus !== "CONNECTED" || isUploading} className="bg-vru-blue hover:bg-blue-700 hover:shadow-lg text-white w-12 h-12 rounded-full flex items-center justify-center transition shadow-md flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
                     {isUploading ? <i className="fa-solid fa-spinner fa-spin text-base"></i> : <i className="fa-solid fa-paper-plane text-base pr-0.5"></i>}
@@ -785,8 +942,9 @@ export default function ChatPageClient() {
               </form>
             </div>
           </div>
-        </div>
-      </main>
+        )}
+      </div>
+    </main>
 
       {/* Report Modal */}
       {isReportModalOpen && (

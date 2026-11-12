@@ -25,6 +25,7 @@ import { RejectShippingFeeDto } from '../dto/reject-shipping-fee.dto.js';
 import { SetShippingFeeDto } from '../dto/set-shipping-fee.dto.js';
 import { OrderReceivedNotificationPort } from '../ports/order-received.port.js';
 import { StockReservationService } from './stock-reservation.service.js';
+import { restoreOrderCouponClaim } from '../common/restore-order-coupon-claim.js';
 
 /** Shared with `ShippingService` — one shape for "an order as its buyer or shop owner sees it". */
 export const ORDER_INCLUDE = {
@@ -140,8 +141,16 @@ export class OrderService {
     }
     refuseUnseenCart(orderableItems, dto.items);
 
-    const itemsByShop = new Map<string, typeof orderableItems>();
-    for (const item of orderableItems) {
+    const shownIds = new Set(dto.items.map((i) => i.cartItemId));
+    const itemsToOrder = orderableItems.filter((item) => shownIds.has(item.id));
+    if (itemsToOrder.length === 0) {
+      throw new AppException('CONFLICT', {
+        message: 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการเพื่อสั่งซื้อ',
+      });
+    }
+
+    const itemsByShop = new Map<string, typeof itemsToOrder>();
+    for (const item of itemsToOrder) {
       const existing = itemsByShop.get(item.shopId);
       if (existing === undefined) {
         itemsByShop.set(item.shopId, [item]);
@@ -188,9 +197,9 @@ export class OrderService {
       }
 
       const claimed = await tx.cartItem.deleteMany({
-        where: { OR: orderableItems.map((item) => ({ id: item.id, quantity: item.quantity })) },
+        where: { OR: itemsToOrder.map((item) => ({ id: item.id, quantity: item.quantity })) },
       });
-      if (claimed.count !== orderableItems.length) {
+      if (claimed.count !== itemsToOrder.length) {
         throw new AppException('CONFLICT', {
           message: 'ตะกร้าเปลี่ยนไประหว่างกดสั่ง หรือถูกสั่งไปแล้ว กรุณาตรวจสอบรายการออเดอร์และตะกร้าอีกครั้ง',
         });
@@ -210,14 +219,14 @@ export class OrderService {
       // a ruling or a deleted variant committed in between used to become an order that its
       // shop's freeze pass had never seen.
       await tx.$queryRaw`SELECT id FROM shop WHERE id = ANY(${shopIds}::uuid[]) ORDER BY id FOR SHARE`;
-      const productIds = [...new Set(orderableItems.map((item) => item.productId))].sort();
+      const productIds = [...new Set(itemsToOrder.map((item) => item.productId))].sort();
       await tx.$queryRaw`SELECT id FROM product WHERE id = ANY(${productIds}::uuid[]) ORDER BY id FOR SHARE`;
-      const sortedVariantIds = [...orderableItems].map((item) => item.variantId).sort();
+      const sortedVariantIds = [...itemsToOrder].map((item) => item.variantId).sort();
       for (const variantId of sortedVariantIds) {
-        const item = orderableItems.find((candidate) => candidate.variantId === variantId)!;
+        const item = itemsToOrder.find((candidate) => candidate.variantId === variantId)!;
         await this.stockReservations.checkAndLock(tx, variantId, item.quantity);
       }
-      await requireStillOrderable(tx, orderableItems);
+      await requireStillOrderable(tx, itemsToOrder);
 
       const orders = [];
       for (const [shopId, items] of itemsByShop) {
@@ -510,19 +519,7 @@ export class OrderService {
       });
 
       // Restore coupon if used
-      const claim = await tx.userCouponClaim.findFirst({
-        where: { orderId: order.id },
-      });
-      if (claim) {
-        await tx.userCouponClaim.update({
-          where: { id: claim.id },
-          data: { isUsed: false, usedAt: null, orderId: null },
-        });
-        await tx.shopCoupon.update({
-          where: { id: claim.couponId },
-          data: { usedCount: { decrement: 1 } },
-        });
-      }
+      await restoreOrderCouponClaim(tx, order.id);
 
       return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: ORDER_INCLUDE });
     });
@@ -839,30 +836,20 @@ export class OrderService {
     }
 
     const now = this.clock.now();
-    const result = await this.prisma.order.updateMany({
-      where: { id: order.id, status: { in: [...MANUALLY_CANCELLABLE_STATUSES] }, frozenAt: null },
-      data: { status: 'CANCELLED', cancelledBy, cancelReason: reason, cancelledAt: now, updatedAt: now },
-    });
-    if (result.count === 0) {
-      throw new AppException('CONFLICT', { message: 'ออเดอร์นี้ยกเลิกเองไม่ได้แล้ว' });
-    }
-
-    // Restore coupon if used
-    const claim = await this.prisma.userCouponClaim.findFirst({
-      where: { orderId: order.id },
-    });
-    if (claim) {
-      await this.prisma.userCouponClaim.update({
-        where: { id: claim.id },
-        data: { isUsed: false, usedAt: null, orderId: null },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.updateMany({
+        where: { id: order.id, status: { in: [...MANUALLY_CANCELLABLE_STATUSES] }, frozenAt: null },
+        data: { status: 'CANCELLED', cancelledBy, cancelReason: reason, cancelledAt: now, updatedAt: now },
       });
-      await this.prisma.shopCoupon.update({
-        where: { id: claim.couponId },
-        data: { usedCount: { decrement: 1 } },
-      });
-    }
+      if (result.count === 0) {
+        throw new AppException('CONFLICT', { message: 'ออเดอร์นี้ยกเลิกเองไม่ได้แล้ว' });
+      }
 
-    const updated = await this.prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: ORDER_INCLUDE });
+      // Restore coupon if used
+      await restoreOrderCouponClaim(tx, order.id);
+
+      return tx.order.findUniqueOrThrow({ where: { id: order.id }, include: ORDER_INCLUDE });
+    });
 
     return OrderDto.from(updated);
   }
@@ -934,14 +921,18 @@ function refuseUnseenCart(
   orderableItems: readonly { id: string; quantity: number; priceAmountMinor: number }[],
   shown: readonly { cartItemId: string; quantity: number; priceAmountMinor: number }[],
 ): void {
+  if (shown.length === 0) {
+    throw new AppException('CONFLICT', { message: 'กรุณาเลือกสินค้าอย่างน้อย 1 รายการเพื่อสั่งซื้อ' });
+  }
   const shownById = new Map(shown.map((line) => [line.cartItemId, line]));
-  const matches =
-    shownById.size === shown.length &&
-    shown.length === orderableItems.length &&
-    orderableItems.every((item) => {
-      const line = shownById.get(item.id);
-      return line !== undefined && line.quantity === item.quantity && line.priceAmountMinor === item.priceAmountMinor;
-    });
+  if (shownById.size !== shown.length) {
+    throw new AppException('STALE_VIEW', { message: 'พบรายการสินค้าซ้ำซ้อนในคำสั่งซื้อ กรุณาตรวจตะกร้าอีกครั้ง' });
+  }
+  const orderableById = new Map(orderableItems.map((item) => [item.id, item]));
+  const matches = shown.every((line) => {
+    const item = orderableById.get(line.cartItemId);
+    return item !== undefined && line.quantity === item.quantity && line.priceAmountMinor === item.priceAmountMinor;
+  });
   if (!matches) {
     throw new AppException('STALE_VIEW', { message: 'ตะกร้าเปลี่ยนไปจากที่คุณเห็น (ราคา จำนวน หรือรายการ) กรุณาตรวจตะกร้าอีกครั้งก่อนสั่ง' });
   }

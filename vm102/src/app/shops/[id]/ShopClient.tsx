@@ -80,11 +80,11 @@ export default function ShopClient({ shopId }: { shopId: string }) {
         prev.map(c =>
           c.id === couponId
             ? {
-                ...c,
-                isClaimed: true,
-                claimedCount: c.claimedCount + 1,
-                remainingQuota: Math.max(0, c.remainingQuota - 1),
-              }
+              ...c,
+              isClaimed: true,
+              claimedCount: c.claimedCount + 1,
+              remainingQuota: Math.max(0, c.remainingQuota - 1),
+            }
             : c
         )
       );
@@ -236,86 +236,85 @@ export default function ShopClient({ shopId }: { shopId: string }) {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       <Header />
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 py-6 md:py-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-4 sm:pt-6 pb-24 md:pb-8">
         <Breadcrumb items={[
           { label: "ร้านค้าชุมชน", href: "/shops" },
           { label: shop.name }
         ]} />
 
         {/* Cover & Profile */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-8 relative">
-          <div className="h-48 md:h-64 bg-cover bg-center relative overflow-hidden" style={{ backgroundImage: `url('${bannerUrl}')` }}>
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-6 sm:mb-8 relative">
+          <div className="h-36 sm:h-48 md:h-64 bg-cover bg-center relative overflow-hidden" style={{ backgroundImage: `url('${bannerUrl}')` }}>
             <div className="absolute inset-0 bg-black/20"></div>
           </div>
 
-          <div className="px-6 md:px-10 pb-8 relative">
-            <div className="flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-10 mb-6 relative z-10">
-              <div className="-mt-16 md:-mt-20 w-32 h-32 md:w-40 md:h-40 bg-white rounded-full p-2 border-4 border-white shadow-md flex-shrink-0 overflow-hidden">
+          <div className="px-4 sm:px-6 md:px-10 pb-6 md:pb-8 relative">
+            <div className="flex flex-col md:flex-row items-center md:items-start gap-4 sm:gap-6 md:gap-10 mb-5 sm:mb-6 relative z-10">
+              <div className="-mt-12 sm:-mt-16 md:-mt-20 w-24 h-24 sm:w-32 sm:h-32 md:w-40 md:h-40 bg-white rounded-full p-1.5 sm:p-2 border-3 sm:border-4 border-white shadow-md flex-shrink-0 overflow-hidden">
                 {logoUrl ? (
                   <img src={logoUrl} alt={shop.name} className="w-full h-full object-cover rounded-full" />
                 ) : (
-                  <div className="w-full h-full bg-[#D4F1BB] rounded-full flex items-center justify-center text-[#16A085] text-4xl font-black">
+                  <div className="w-full h-full bg-[#D4F1BB] rounded-full flex items-center justify-center text-[#16A085] text-2xl sm:text-4xl font-black">
                     {shop.name.charAt(0)}
                   </div>
                 )}
               </div>
-              <div className="text-center md:text-left flex-grow mt-2 md:mt-8">
-                <h1 className="text-3xl md:text-4xl font-bold text-gray-800 tracking-tight">{shop.name}</h1>
+              <div className="text-center md:text-left flex-grow mt-1 sm:mt-2 md:mt-8 min-w-0">
+                <h1 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-800 tracking-tight leading-snug">{shop.name}</h1>
                 {shop.description && (
-                  <p className="text-gray-600 mt-2 max-w-xl whitespace-pre-line leading-relaxed text-sm bg-gray-50/70 p-4 rounded-2xl border border-gray-100">{shop.description}</p>
+                  <p className="text-gray-600 mt-2 max-w-xl whitespace-pre-line leading-relaxed text-xs sm:text-sm bg-gray-50/70 p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100">{shop.description}</p>
                 )}
-                <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-3">
-                  <span className="bg-[#16A085] text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center shadow-sm">
+                <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 sm:gap-3 mt-2.5 sm:mt-3">
+                  <span className="bg-[#16A085] text-white text-[11px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full flex items-center shadow-2xs">
                     <i className="fa-solid fa-leaf mr-1.5"></i> ชุมชนต้นแบบ
                   </span>
-                  <span className="text-gray-500 text-sm font-medium flex items-center ml-2">
+                  <span className="text-gray-500 text-xs sm:text-sm font-medium flex items-center ml-1 sm:ml-2">
                     <i className="fa-solid fa-location-dot text-red-500 mr-1.5"></i> {shop.province || "ไม่ระบุจังหวัด"}
                   </span>
                 </div>
               </div>
-              <div className="w-full md:w-auto flex flex-wrap gap-3 mt-4 md:mt-8">
+              <div className="w-full md:w-auto flex flex-wrap gap-2 sm:gap-3 mt-3 sm:mt-4 md:mt-8">
                 <button
                   onClick={handleFollowToggle}
                   disabled={isFollowLoading}
-                  className={`flex-1 md:flex-none font-bold py-3 px-8 rounded-full text-sm transition-all flex items-center justify-center gap-2 shadow-sm ${
-                    followStatus.isFollowing 
-                      ? "bg-gray-100 text-gray-700 hover:bg-gray-200" 
+                  className={`flex-1 md:flex-none font-bold py-2.5 sm:py-3 px-4 sm:px-8 rounded-full text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 sm:gap-2 shadow-2xs active:scale-95 ${followStatus.isFollowing
+                      ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
                       : "bg-[#16A085] text-white hover:bg-[#117A65]"
-                  }`}
+                    }`}
                 >
-                  <i className={`fa-solid ${followStatus.isFollowing ? "fa-check" : "fa-plus"} text-lg ${isFollowLoading ? "fa-spinner fa-spin" : ""}`}></i> 
+                  <i className={`fa-solid ${followStatus.isFollowing ? "fa-check" : "fa-plus"} text-sm sm:text-base ${isFollowLoading ? "fa-spinner fa-spin" : ""}`}></i>
                   {followStatus.isFollowing ? "กำลังติดตาม" : "ติดตามร้านค้า"}
                 </button>
-                <Link href="/chat" className="flex-1 md:flex-none bg-[#E8F8F5] text-[#16A085] hover:bg-[#D1F2EB] font-bold py-2.5 px-6 rounded-full text-sm transition-all flex items-center justify-center gap-2">
-                  <i className="fa-regular fa-message text-lg"></i> แชท
+                <Link href={`/chat?shopId=${shop.id}`} className="flex-1 md:flex-none bg-[#E8F8F5] text-[#16A085] hover:bg-[#D1F2EB] font-bold py-2.5 px-4 sm:px-6 rounded-full text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 sm:gap-2 active:scale-95">
+                  <i className="fa-regular fa-message text-sm sm:text-base"></i> แชท
                 </Link>
                 <button
                   type="button"
                   onClick={() => setIsShareModalOpen(true)}
-                  className="flex-1 md:flex-none bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-6 rounded-full text-sm transition-all flex items-center justify-center gap-2 active:scale-95 shadow-2xs"
+                  className="flex-1 md:flex-none bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-3.5 sm:px-6 rounded-full text-xs sm:text-sm transition-all flex items-center justify-center gap-1.5 sm:gap-2 active:scale-95 shadow-2xs cursor-pointer"
                   title="แชร์ร้านค้า"
                 >
-                  <i className="fa-solid fa-share-nodes text-lg text-[#16A085]"></i> แชร์
+                  <i className="fa-solid fa-share-nodes text-sm sm:text-base text-[#16A085]"></i> แชร์
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center pt-6">
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-col items-center justify-center">
-                <p className="text-gray-500 text-xs md:text-sm font-bold mb-1">สินค้าทั้งหมด</p>
-                <p className="font-black text-[#16A085] text-2xl">{productList.length}</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4 text-center pt-4 sm:pt-6">
+              <div className="bg-white p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 flex flex-col items-center justify-center shadow-2xs">
+                <p className="text-gray-500 text-[11px] sm:text-xs md:text-sm font-bold mb-0.5 sm:mb-1">สินค้าทั้งหมด</p>
+                <p className="font-black text-[#16A085] text-xl sm:text-2xl">{productList.length}</p>
               </div>
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-col items-center justify-center">
-                <p className="text-gray-500 text-xs md:text-sm font-bold mb-1">ผู้ติดตาม</p>
-                <p className="font-black text-[#16A085] text-2xl">{followStatus.followerCount}</p>
+              <div className="bg-white p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 flex flex-col items-center justify-center shadow-2xs">
+                <p className="text-gray-500 text-[11px] sm:text-xs md:text-sm font-bold mb-0.5 sm:mb-1">ผู้ติดตาม</p>
+                <p className="font-black text-[#16A085] text-xl sm:text-2xl">{followStatus.followerCount}</p>
               </div>
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-col items-center justify-center">
-                <p className="text-gray-500 text-xs md:text-sm font-bold mb-1">คะแนนร้านค้า</p>
-                <p className="font-black text-[#16A085] text-2xl">{shop.averageRating ? `${shop.averageRating.toFixed(1)}/5` : "-"}</p>
+              <div className="bg-white p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 flex flex-col items-center justify-center shadow-2xs">
+                <p className="text-gray-500 text-[11px] sm:text-xs md:text-sm font-bold mb-0.5 sm:mb-1">คะแนนร้านค้า</p>
+                <p className="font-black text-[#16A085] text-xl sm:text-2xl">{shop.averageRating ? `${shop.averageRating.toFixed(1)}/5` : "-"}</p>
               </div>
-              <div className="bg-white p-4 rounded-2xl border border-gray-100 flex flex-col items-center justify-center">
-                <p className="text-gray-500 text-xs md:text-sm font-bold mb-1">เข้าร่วมเมื่อ</p>
-                <p className="font-black text-[#16A085] text-2xl">{joinedAge}</p>
+              <div className="bg-white p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-gray-100 flex flex-col items-center justify-center shadow-2xs">
+                <p className="text-gray-500 text-[11px] sm:text-xs md:text-sm font-bold mb-0.5 sm:mb-1">เข้าร่วมเมื่อ</p>
+                <p className="font-black text-[#16A085] text-xl sm:text-2xl">{joinedAge}</p>
               </div>
             </div>
           </div>
@@ -323,15 +322,15 @@ export default function ShopClient({ shopId }: { shopId: string }) {
 
         {/* Shop Coupons Banner */}
         {coupons.length > 0 && (
-          <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 rounded-3xl p-6 md:p-8 border border-emerald-100 shadow-sm mb-8">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center text-[#16A085] text-xl border border-emerald-100">
+          <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-emerald-100 shadow-sm mb-6 sm:mb-8">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-white shadow-xs flex items-center justify-center text-[#16A085] text-lg sm:text-xl border border-emerald-100 flex-shrink-0">
                   <i className="fa-solid fa-ticket-simple"></i>
                 </div>
                 <div>
-                  <h2 className="text-xl md:text-2xl font-black text-gray-800">คูปองส่วนลดของร้านค้า</h2>
-                  <p className="text-xs md:text-sm text-gray-500 font-medium">กดเก็บโค้ดเพื่อรับส่วนลดทันทีเมื่อสั่งซื้อสินค้าจากร้านนี้</p>
+                  <h2 className="text-lg sm:text-xl md:text-2xl font-black text-gray-800">คูปองส่วนลดของร้านค้า</h2>
+                  <p className="text-[11px] sm:text-xs md:text-sm text-gray-500 font-medium">กดเก็บโค้ดเพื่อรับส่วนลดทันทีเมื่อสั่งซื้อสินค้าจากร้านนี้</p>
                 </div>
               </div>
               <div className="flex items-center gap-2.5 self-start sm:self-auto">
@@ -436,19 +435,19 @@ export default function ShopClient({ shopId }: { shopId: string }) {
                         ) : isAdminBlocked ? (
                           <span className="text-gray-400">ไม่สามารถเก็บคูปอง (Admin)</span>
                         ) : (
-                            <button
-                              onClick={() => handleClaimCoupon(coupon.id)}
-                              disabled={isSoldOut || isClaiming}
-                              className="btn-minimal text-xs font-bold px-4 py-1.5 rounded-full transition-all shadow-sm hover:shadow disabled:opacity-50 flex items-center gap-1.5"
-                            >
-                              {isClaiming ? (
-                                <><i className="fa-solid fa-spinner fa-spin"></i> กำลังเก็บ...</>
-                              ) : isSoldOut ? (
-                                "หมดแล้ว"
-                              ) : (
-                                <><i className="fa-solid fa-plus"></i> เก็บโค้ด</>
-                              )}
-                            </button>
+                          <button
+                            onClick={() => handleClaimCoupon(coupon.id)}
+                            disabled={isSoldOut || isClaiming}
+                            className="btn-minimal text-xs font-bold px-4 py-1.5 rounded-full transition-all shadow-sm hover:shadow disabled:opacity-50 flex items-center gap-1.5"
+                          >
+                            {isClaiming ? (
+                              <><i className="fa-solid fa-spinner fa-spin"></i> กำลังเก็บ...</>
+                            ) : isSoldOut ? (
+                              "หมดแล้ว"
+                            ) : (
+                              <><i className="fa-solid fa-plus"></i> เก็บโค้ด</>
+                            )}
+                          </button>
                         )}
                       </div>
                     </div>
@@ -470,20 +469,20 @@ export default function ShopClient({ shopId }: { shopId: string }) {
         )}
 
         {/* Map Section */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-8 p-6 md:p-8">
-          <h2 className="font-black text-gray-800 text-xl mb-4 flex items-center gap-2">
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-6 sm:mb-8 p-4 sm:p-6 md:p-8">
+          <h2 className="font-black text-gray-800 text-lg sm:text-xl mb-3 sm:mb-4 flex items-center gap-2">
             <i className="fa-solid fa-map-location-dot text-[#16A085]"></i> ตำแหน่งที่ตั้งร้านค้า
           </h2>
-          <div className="h-64 rounded-2xl overflow-hidden border border-gray-200">
+          <div className="h-48 sm:h-64 rounded-xl sm:rounded-2xl overflow-hidden border border-gray-200">
             <MapDisplay latitude={mapCoords.lat} longitude={mapCoords.lng} shopName={shop.name} containerHeight="100%" />
           </div>
         </div>
 
         {/* Product list */}
-        <div className="mb-8 border-b border-gray-200">
+        <div className="mb-6 sm:mb-8 border-b border-gray-200">
           <ul className="flex flex-wrap -mb-px text-sm font-medium text-center">
             <li className="mr-2">
-              <span className="inline-block p-4 border-b-2 border-[#16A085] text-[#16A085] font-bold rounded-t-lg active text-base">
+              <span className="inline-block py-3 px-4 border-b-2 border-[#16A085] text-[#16A085] font-bold rounded-t-lg active text-sm sm:text-base">
                 สินค้าทั้งหมดของร้าน
               </span>
             </li>
@@ -496,7 +495,7 @@ export default function ShopClient({ shopId }: { shopId: string }) {
             <p className="font-bold">ร้านนี้ยังไม่มีสินค้า</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
             {productList.map((product) => (
               <ProductCard key={product.id} product={mapPublicProductDto(product)} />
             ))}
@@ -505,11 +504,11 @@ export default function ShopClient({ shopId }: { shopId: string }) {
 
         {/* Share Store Modal */}
         {isShareModalOpen && shop && (
-          <div 
+          <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in"
             onClick={() => setIsShareModalOpen(false)}
           >
-            <div 
+            <div
               className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl relative border border-gray-100 transform transition-all"
               onClick={(e) => e.stopPropagation()}
             >
@@ -631,11 +630,10 @@ export default function ShopClient({ shopId }: { shopId: string }) {
                   <button
                     type="button"
                     onClick={handleCopyLink}
-                    className={`font-bold text-xs py-2 px-4 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer ${
-                      isCopied 
-                        ? "bg-emerald-600 text-white" 
+                    className={`font-bold text-xs py-2 px-4 rounded-xl transition flex items-center gap-1.5 shadow-2xs cursor-pointer ${isCopied
+                        ? "bg-emerald-600 text-white"
                         : "bg-[#16A085] hover:bg-[#117A65] text-white"
-                    }`}
+                      }`}
                   >
                     <i className={`fa-solid ${isCopied ? "fa-check" : "fa-copy"}`}></i>
                     {isCopied ? "คัดลอกแล้ว" : "คัดลอก"}

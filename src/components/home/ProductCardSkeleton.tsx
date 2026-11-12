@@ -5,7 +5,7 @@ export default function ProductCardSkeleton() {
       <div className="relative pt-[100%] bg-gray-200"></div>
 
       {/* Info Skeleton */}
-      <div className="p-4 flex flex-col flex-grow bg-white">
+      <div className="p-2.5 sm:p-4 flex flex-col flex-grow bg-white">
         <div className="h-4 bg-gray-200 rounded-md w-3/4 mb-2"></div>
         <div className="h-4 bg-gray-200 rounded-md w-1/2 mb-4"></div>
         

@@ -51,9 +51,18 @@ echo "restoring database..."
 # --clean --if-exists: drops existing objects before recreating them, so this works whether
 # the target database is empty or already has a (possibly different) schema in it — the same
 # reasoning prisma migrate deploy's own idempotency follows, applied to a full restore.
-docker compose exec -T "$POSTGRES_SERVICE" \
-  pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists \
-  < "$RUN_DIR/database.dump"
+if [[ -n "${POSTGRES_HOST:-}" ]]; then
+  echo "restoring database to remote host $POSTGRES_HOST..."
+  docker run --rm -i \
+    -e PGPASSWORD="${POSTGRES_PASSWORD:-}" \
+    postgres:16-alpine \
+    pg_restore -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists \
+    < "$RUN_DIR/database.dump"
+else
+  docker compose exec -T "$POSTGRES_SERVICE" \
+    pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists \
+    < "$RUN_DIR/database.dump"
+fi
 
 UPLOADS_VOLUME="${UPLOADS_VOLUME:-}"
 if [[ -z "$UPLOADS_VOLUME" ]]; then

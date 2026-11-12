@@ -1,8 +1,9 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Article } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Page } from '../../common/pagination/page.js';
+import { sanitizeArticleHtml } from '../sanitize-article-html.js';
 
 export class ArticleDto {
   @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
@@ -40,7 +41,7 @@ export class ArticleDto {
     dto.image = row.image;
     dto.authorName = row.authorName;
     dto.excerpt = row.excerpt;
-    dto.content = row.content;
+    dto.content = sanitizeArticleHtml(row.content);
     dto.tags = Array.isArray(row.tags) ? (row.tags as string[]) : [];
     dto.createdAt = row.createdAt;
     return dto;
@@ -114,7 +115,5 @@ export class CreateArticleDto {
   @IsOptional()
   tags?: string[];
 }
-
-import { PartialType } from '@nestjs/swagger';
 
 export class UpdateArticleDto extends PartialType(CreateArticleDto) {}

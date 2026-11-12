@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "category" ADD COLUMN IF NOT EXISTS "icon" VARCHAR(50);
+ALTER TABLE "category" ADD COLUMN IF NOT EXISTS "color" VARCHAR(50);

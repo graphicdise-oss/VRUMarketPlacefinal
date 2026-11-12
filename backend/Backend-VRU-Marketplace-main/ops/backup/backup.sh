@@ -38,12 +38,21 @@ mkdir -p "$RUN_DIR"
 
 cd "$COMPOSE_PROJECT_DIR"
 
-# 1. Database — pg_dump runs *inside* the postgres container, through the same binary that
-# wrote the data, so there is never a client/server version mismatch to worry about.
+# 1. Database — pg_dump runs *inside* the postgres container (single-host) or a remote postgres client
+# (multi-host, e.g. vm104), through the same binary, so there is never a client/server version mismatch.
 echo "[$TIMESTAMP] dumping database..."
-docker compose exec -T "$POSTGRES_SERVICE" \
-  pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc \
-  > "$RUN_DIR/database.dump"
+if [[ -n "${POSTGRES_HOST:-}" ]]; then
+  echo "[$TIMESTAMP] dumping database from remote host $POSTGRES_HOST..."
+  docker run --rm \
+    -e PGPASSWORD="${POSTGRES_PASSWORD:-}" \
+    postgres:16-alpine \
+    pg_dump -h "$POSTGRES_HOST" -p "${POSTGRES_PORT:-5432}" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc \
+    > "$RUN_DIR/database.dump"
+else
+  docker compose exec -T "$POSTGRES_SERVICE" \
+    pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc \
+    > "$RUN_DIR/database.dump"
+fi
 
 # 2. Uploads volume — resolve the real (compose-prefixed) Docker volume name from the api
 # container's own mounts, rather than guessing the prefix, so this keeps working whatever the

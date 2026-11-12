@@ -1,42 +1,73 @@
 "use client";
 
 import Link from "next/link";
-
+import { useSearchParams } from "next/navigation";
 import { useCart } from "@/components/cart/CartProvider";
 import { formatPrice } from "@/lib/utils";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { Address } from "@/types";
+import { Address, CartItem } from "@/types";
 import Breadcrumb from "@/components/ui/Breadcrumb";
-import { useSearchParams } from "next/navigation";
-import { buyerOrderApi, addressApi, couponApi, CouponDto, UserCouponClaimDto } from "@/lib/api";
+import { buyerOrderApi, addressApi, couponApi, cartApi, CouponDto, UserCouponClaimDto, shopApi } from "@/lib/api";
 
 export default function CheckoutPageClient() {
+  const { cart, refreshCart } = useCart();
   const searchParams = useSearchParams();
-  const shopIdParam = searchParams.get("shopId");
-  
-  const { cart: fullCart, getCartGroupedByShop, clearCart, removeFromCart, refreshCart } = useCart();
+  const itemsParam = searchParams.get("items");
+
+  const selectedItemIds = useMemo(() => {
+    if (!itemsParam) return null;
+    const ids = itemsParam.split(",").map((s) => s.trim()).filter(Boolean);
+    return ids.length > 0 ? new Set(ids) : null;
+  }, [itemsParam]);
+
+  const checkoutCart = useMemo(() => {
+    if (!selectedItemIds) return cart;
+    return cart.filter((item) => selectedItemIds.has(item.id));
+  }, [cart, selectedItemIds]);
+
+  const totalPriceMinor = useMemo(() => {
+    return checkoutCart.reduce((sum, item) => sum + item.priceMinor * item.qty, 0);
+  }, [checkoutCart]);
+
+  const shopGroups = useMemo(() => {
+    const groups: Record<string, { shopId: string; shopName: string; items: CartItem[]; subtotalMinor: number }> = {};
+    for (const item of checkoutCart) {
+      if (!groups[item.shopId]) {
+        groups[item.shopId] = {
+          shopId: item.shopId,
+          shopName: item.shopName,
+          items: [],
+          subtotalMinor: 0,
+        };
+      }
+      groups[item.shopId].items.push(item);
+      groups[item.shopId].subtotalMinor += item.priceMinor * item.qty;
+    }
+    return groups;
+  }, [checkoutCart]);
+
   const isPlacingOrderRef = useRef(false);
-  
-  // Filter cart by shopId if provided
-  const cart = shopIdParam ? fullCart.filter(item => item.shopId === shopIdParam) : fullCart;
-  const totalPriceMinor = cart.reduce((sum, item) => sum + item.priceMinor * item.qty, 0);
-  
-  const shopGroups = getCartGroupedByShop();
-  
-  // Filter shop groups if shopId provided
-  let filteredShopGroups = shopGroups;
-  if (shopIdParam && shopGroups[shopIdParam]) {
-    filteredShopGroups = { [shopIdParam]: shopGroups[shopIdParam] };
-  } else if (shopIdParam) {
-    filteredShopGroups = {};
-  }
-  
-  const shopCount = Object.keys(filteredShopGroups).length;
+  const shopCount = Object.keys(shopGroups).length;
   const [selectedAddress, setSelectedAddress] = useState("");
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [submitted, setSubmitted] = useState(false);
   const { user } = useAuth();
+  const [shopNames, setShopNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const shopIds = Object.keys(shopGroups);
+    shopIds.forEach(async (id) => {
+      try {
+        const s = await shopApi.getById(id);
+        if (s?.name) {
+          setShopNames((prev) => ({ ...prev, [id]: s.name }));
+        }
+      } catch {
+        // Fallback
+      }
+    });
+  }, [shopGroups]);
 
   // Coupon state
   const [selectedCoupons, setSelectedCoupons] = useState<Record<string, { coupon: CouponDto; discountMinor: number } | null>>({});
@@ -153,23 +184,31 @@ export default function CheckoutPageClient() {
     isPlacingOrderRef.current = true;
     setIsSubmitting(true);
     try {
-      // Gather all orderable items
-      const itemsToCheckout = cart.filter(i => i.orderable !== false).map(i => ({
-        cartItemId: i.id,
-        quantity: i.qty,
-        priceAmountMinor: i.priceMinor,
-      }));
+      // 1. Fetch fresh cart directly from server to ensure 100% synchronized item IDs, quantities, and prices
+      const freshCart = await cartApi.get();
+      let freshOrderableItems = (freshCart.items || []).filter((i) => i.orderable);
+      if (selectedItemIds) {
+        freshOrderableItems = freshOrderableItems.filter((i) => selectedItemIds.has(i.id));
+      }
 
-      if (itemsToCheckout.length === 0) {
+      if (freshOrderableItems.length === 0) {
         await refreshCart();
-        alert("ตะกร้าว่างหรือไม่มีสินค้าที่สั่งได้ กรุณากลับไปตรวจสอบตะกร้า");
+        alert("ไม่มีสินค้าที่เลือกหรือสั่งได้ กรุณากลับไปตรวจสอบตะกร้า");
         isPlacingOrderRef.current = false;
         setIsSubmitting(false);
         return;
       }
 
+      const itemsToCheckout = freshOrderableItems.map((i) => ({
+        cartItemId: i.id,
+        quantity: i.quantity,
+        priceAmountMinor: i.priceAmountMinor,
+      }));
+
+      // Filter coupons for shops participating in this checkout
+      const checkoutShopIds = new Set(freshOrderableItems.map((i) => i.shopId));
       const couponsPayload = Object.entries(selectedCoupons)
-        .filter(([, val]) => val !== null)
+        .filter(([shopId, val]) => val !== null && checkoutShopIds.has(shopId))
         .map(([shopId, val]) => ({
           shopId,
           couponId: val!.coupon.id,
@@ -182,21 +221,11 @@ export default function CheckoutPageClient() {
       );
 
       setSubmitted(true);
-      
-      // If we only checked out one shop, remove only those items from cart
-      if (shopIdParam) {
-        for (const item of itemsToCheckout) {
-          await removeFromCart(item.cartItemId);
-        }
-      } else {
-        await clearCart();
-      }
-      
+      await refreshCart();
       isPlacingOrderRef.current = false;
       setIsSubmitting(false);
     } catch (error) {
       console.error("Failed to place order:", error);
-      // The server cart may have changed under us (already ordered, other tab, item no longer orderable).
       await refreshCart();
       const message = error instanceof Error && error.message ? error.message : "การสั่งซื้อล้มเหลว กรุณาลองใหม่อีกครั้ง";
       alert(message);
@@ -249,7 +278,7 @@ export default function CheckoutPageClient() {
     );
   }
 
-  if (cart.length === 0) {
+  if (checkoutCart.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50/50 flex flex-col">
         <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm border-b border-gray-100">
@@ -267,8 +296,8 @@ export default function CheckoutPageClient() {
             <div className="w-24 h-24 mx-auto mb-6 bg-gray-50 rounded-full flex items-center justify-center text-gray-300 text-5xl">
               <i className="fa-solid fa-cart-arrow-down"></i>
             </div>
-            <h2 className="text-2xl font-bold text-gray-700 mb-3">ตะกร้าของคุณว่างเปล่า</h2>
-            <p className="text-gray-500 mb-8">คุณยังไม่มีสินค้าในตะกร้า ลองเลือกดูสินค้าชุมชนของเราสิครับ</p>
+            <h2 className="text-2xl font-bold text-gray-700 mb-3">ไม่มีสินค้าที่เลือกสั่งซื้อ</h2>
+            <p className="text-gray-500 mb-8">คุณยังไม่ได้เลือกสินค้าที่ต้องการชำระเงิน หรือไม่มีสินค้าในตะกร้า</p>
             <Link href="/" className="btn-minimal font-bold px-8 py-3.5 rounded-full inline-block shadow-md">
               เลือกซื้อสินค้าเลย
             </Link>
@@ -278,116 +307,161 @@ export default function CheckoutPageClient() {
     );
   }
 
+  const currentAddress = addresses.find((a) => a.id === selectedAddress) || addresses[0];
+
   return (
     <div className="min-h-screen bg-gray-50/50">
-      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm border-b border-gray-100">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#16A085] rounded-xl flex items-center justify-center text-white shadow-sm">
-              <i className="fa-solid fa-leaf text-xl"></i>
+      <header className="bg-white/90 backdrop-blur-md sticky top-0 z-50 shadow-xs border-b border-gray-100">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-[#16A085] rounded-xl flex items-center justify-center text-white shadow-xs">
+              <i className="fa-solid fa-leaf text-base"></i>
             </div>
-            <h1 className="text-xl font-black tracking-tight text-gray-800">VRU <span className="text-[#16A085]">Marketplace</span></h1>
+            <h1 className="text-base sm:text-lg font-black tracking-tight text-gray-800">
+              VRU <span className="text-[#16A085]">Marketplace</span>
+            </h1>
           </Link>
-          <Link href="/" className="text-sm font-bold text-gray-500 hover:text-[#16A085] bg-gray-50 hover:bg-[#D4F1BB]/30 px-4 py-2 rounded-full transition flex items-center gap-2">
-            <i className="fa-solid fa-house"></i> กลับหน้าหลัก
+          <Link
+            href="/"
+            className="text-xs font-bold text-gray-500 hover:text-[#16A085] bg-gray-50 hover:bg-[#D4F1BB]/30 px-3 py-1.5 rounded-full transition flex items-center gap-1.5"
+          >
+            <i className="fa-solid fa-house text-xs"></i>
+            <span>กลับหน้าหลัก</span>
           </Link>
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8 md:py-10">
+      <main className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-7">
         <Breadcrumb items={[{ label: "ชำระเงิน" }]} />
-        <h2 className="text-2xl md:text-3xl font-black text-gray-800 mb-8 flex items-center gap-3">
-          <div className="w-12 h-12 bg-[#16A085] rounded-2xl flex items-center justify-center text-white shadow-sm">
-            <i className="fa-solid fa-file-invoice text-xl"></i>
-          </div>
-          ยืนยันคำสั่งซื้อ
-        </h2>
+        <div className="flex items-center justify-between mb-3.5 sm:mb-5">
+          <h2 className="text-xl sm:text-2xl font-black text-gray-800 flex items-center gap-2.5">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-emerald-50 text-[#16A085] rounded-xl flex items-center justify-center text-base sm:text-lg border border-emerald-100/60 shadow-2xs">
+              <i className="fa-solid fa-file-invoice"></i>
+            </div>
+            ยืนยันคำสั่งซื้อ
+          </h2>
+          <span className="text-xs text-gray-400 font-medium hidden sm:inline">
+            ตรวจสอบรายการก่อนยืนยัน
+          </span>
+        </div>
 
         {/* แจ้งเตือน: แยกออเดอร์ */}
         {shopCount > 1 && (
-          <div className="bg-[#D4F1BB]/30 border border-[#16A085]/30 rounded-2xl p-5 mb-8 flex items-start gap-4">
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-[#16A085] flex-shrink-0 shadow-sm mt-1">
-              <i className="fa-solid fa-info text-xl"></i>
-            </div>
-            <div>
-              <p className="text-base font-bold text-gray-800 mb-1">สินค้าจาก {shopCount} ร้าน จะถูกแยกเป็น {shopCount} คำสั่งซื้อ</p>
-              <p className="text-sm text-gray-600 font-medium">เนื่องจากระบบสนับสนุนให้รายได้เข้าสู่ชุมชนโดยตรง แต่ละร้านจึงมีบัญชีรับเงินแยกกัน การโอนเงินจะทำแยกต่อคำสั่งซื้อครับ</p>
-            </div>
+          <div className="bg-emerald-50/40 border border-[#16A085]/20 rounded-2xl p-3 sm:p-3.5 mb-4 sm:mb-5 flex items-start gap-2.5 text-xs sm:text-sm">
+            <i className="fa-solid fa-circle-info text-[#16A085] text-sm mt-0.5 flex-shrink-0"></i>
+            <p className="text-gray-700 leading-relaxed font-medium">
+              สินค้าจาก <b className="text-gray-900">{shopCount} ร้าน</b> จะถูกแยกเป็น {shopCount} คำสั่งซื้อ เนื่องจากแต่ละร้านค้าชุมชนมีบัญชีรับเงินแยกกันครับ
+            </p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Left: Orders Breakdown */}
-          <div className="lg:col-span-2 flex flex-col gap-6">
-            
+          <div className="lg:col-span-2 flex flex-col gap-3.5 sm:gap-4">
             {/* ที่อยู่จัดส่ง */}
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-lg text-gray-800 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-red-50 text-red-500 flex items-center justify-center">
-                    <i className="fa-solid fa-location-dot"></i>
-                  </div>
-                  ที่อยู่สำหรับการจัดส่ง
+            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xs border border-gray-100 p-4 sm:p-5">
+              <div className="flex justify-between items-center pb-2.5 mb-3 border-b border-gray-100">
+                <h3 className="font-bold text-sm sm:text-base text-gray-800 flex items-center gap-2">
+                  <i className="fa-solid fa-location-dot text-red-500 text-sm"></i>
+                  <span>ที่อยู่สำหรับการจัดส่ง</span>
                 </h3>
-                <Link href="/profile/addresses" className="text-sm text-[#16A085] font-bold hover:underline bg-[#D4F1BB]/30 px-3 py-1.5 rounded-full flex items-center gap-1.5">
-                  <i className="fa-solid fa-pen text-xs"></i> จัดการที่อยู่
+                <Link
+                  href="/profile/addresses?from=checkout"
+                  className="text-xs text-[#16A085] hover:text-[#117A65] font-bold flex items-center gap-1 hover:underline"
+                >
+                  <i className="fa-solid fa-pen text-[10px]"></i> จัดการที่อยู่
                 </Link>
               </div>
-              
-              <div className="relative mb-4">
-                <select 
-                  value={selectedAddress} 
-                  onChange={(e) => setSelectedAddress(e.target.value)}
-                  className="w-full appearance-none bg-gray-50 border-2 border-gray-100 text-gray-800 text-sm font-medium py-3.5 px-5 rounded-2xl focus:outline-none focus:border-[#16A085] focus:bg-white transition-all shadow-inner"
-                >
-                  {addresses.map((addr) => (
-                    <option key={addr.id} value={addr.id}>
-                      {addr.recipientName} ({addr.phone}) - {addr.houseNumber} ต.{addr.subdistrictNameTh} อ.{addr.districtNameTh} จ.{addr.provinceNameTh} {addr.postalCode} {addr.isDefault ? "(ค่าเริ่มต้น)" : ""}
-                    </option>
-                  ))}
-                  {addresses.length === 0 && <option value="">ยังไม่มีที่อยู่จัดส่ง กรุณาเพิ่มที่อยู่ใหม่</option>}
-                </select>
-                <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                  <i className="fa-solid fa-chevron-down"></i>
+
+              {addresses.length > 1 && (
+                <div className="relative mb-2.5">
+                  <select
+                    value={selectedAddress}
+                    onChange={(e) => setSelectedAddress(e.target.value)}
+                    className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-700 text-xs font-semibold py-2 pl-3 pr-8 rounded-xl focus:outline-none focus:border-[#16A085] cursor-pointer"
+                  >
+                    {addresses.map((addr) => (
+                      <option key={addr.id} value={addr.id}>
+                        {addr.recipientName} ({addr.phone}) - {addr.houseNumber} ต.{addr.subdistrictNameTh} {addr.isDefault ? "(ค่าเริ่มต้น)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <i className="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
                 </div>
-              </div>
+              )}
 
               {/* Show selected address details */}
-              {addresses.find(a => a.id === selectedAddress) && (
-                <div className="p-5 bg-white border-2 border-[#16A085]/20 rounded-2xl text-sm relative overflow-hidden shadow-sm">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-[#16A085]"></div>
-                  <p className="font-black text-gray-800 mb-2 text-base">{addresses.find(a => a.id === selectedAddress)?.recipientName} <span className="text-gray-500 font-medium ml-2 text-sm">{addresses.find(a => a.id === selectedAddress)?.phone}</span></p>
-                  <p className="text-gray-600 leading-relaxed font-medium">{addresses.find(a => a.id === selectedAddress)?.houseNumber} ต.{addresses.find(a => a.id === selectedAddress)?.subdistrictNameTh} อ.{addresses.find(a => a.id === selectedAddress)?.districtNameTh} จ.{addresses.find(a => a.id === selectedAddress)?.provinceNameTh} {addresses.find(a => a.id === selectedAddress)?.postalCode}</p>
+              {currentAddress ? (
+                <div className="p-3 sm:p-3.5 bg-emerald-50/20 border border-emerald-100/80 rounded-xl text-xs sm:text-sm">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="font-bold text-gray-800 text-sm">{currentAddress.recipientName}</span>
+                    <span className="text-gray-500 text-xs bg-white px-2 py-0.5 rounded-full border border-gray-200 font-medium">
+                      {currentAddress.phone}
+                    </span>
+                    {currentAddress.isDefault && (
+                      <span className="text-[10px] font-bold text-[#16A085] bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-200/60">
+                        ค่าเริ่มต้น
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-gray-600 leading-relaxed text-xs sm:text-sm">
+                    {currentAddress.houseNumber} ต.{currentAddress.subdistrictNameTh} อ.{currentAddress.districtNameTh} จ.{currentAddress.provinceNameTh} {currentAddress.postalCode}
+                  </p>
+                </div>
+              ) : (
+                <div className="py-4 px-3 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  <p className="text-xs text-gray-500 mb-2">ยังไม่มีที่อยู่จัดส่ง</p>
+                  <Link
+                    href="/profile/addresses?from=checkout"
+                    className="text-xs text-[#16A085] font-bold hover:underline"
+                  >
+                    + เพิ่มที่อยู่จัดส่งใหม่
+                  </Link>
                 </div>
               )}
             </div>
 
             {/* รายการสินค้าแยกตามร้าน */}
-            {Object.values(filteredShopGroups).map((group, idx) => {
+            {Object.values(shopGroups).map((group, idx) => {
               const currentCoupon = selectedCoupons[group.shopId];
               const shopDiscount = currentCoupon?.discountMinor || 0;
               const shopNetSubtotal = Math.max(0, group.subtotalMinor - shopDiscount);
+              const resolvedShopName = shopNames[group.shopId] || group.shopName || "ร้านค้าชุมชน";
 
               return (
-                <div key={group.shopId} className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="flex items-center gap-3 px-6 py-4 bg-gray-50 border-b border-gray-100">
-                    <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500">
-                      <i className="fa-solid fa-store text-xs"></i>
+                <div key={group.shopId} className="bg-white rounded-2xl sm:rounded-3xl shadow-xs border border-gray-100 overflow-hidden">
+                  <div className="flex items-center gap-2.5 px-4 py-3 bg-gray-50/80 border-b border-gray-100">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 text-[#16A085] flex items-center justify-center text-xs shadow-2xs border border-emerald-100/60">
+                      <i className="fa-solid fa-store"></i>
                     </div>
-                    <span className="font-bold text-gray-800 text-lg">{group.shopName}</span>
-                    {shopCount > 1 && <span className="ml-auto text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded-full font-bold">คำสั่งซื้อที่ {idx + 1}</span>}
+                    <span className="font-bold text-gray-800 text-sm sm:text-base">{resolvedShopName}</span>
+                    {shopCount > 1 && (
+                      <span className="ml-auto text-[11px] bg-gray-200/80 text-gray-600 px-2.5 py-0.5 rounded-full font-bold">
+                        ร้านที่ {idx + 1}
+                      </span>
+                    )}
                   </div>
                   
-                  <div className="divide-y divide-gray-50 p-2">
+                  <div className="divide-y divide-gray-50 p-1 sm:p-2">
                     {group.items.map((item) => (
-                      <div key={item.id} className="flex gap-4 p-4">
-                        <img src={item.image} alt={item.name} className="w-20 h-20 object-cover rounded-2xl border border-gray-100 flex-shrink-0" />
+                      <div key={item.id} className="flex gap-3 p-2.5 sm:p-3">
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="w-14 h-14 sm:w-16 sm:h-16 object-cover rounded-xl border border-gray-100 flex-shrink-0"
+                        />
                         <div className="flex-grow min-w-0 flex flex-col justify-center">
-                          <h4 className="text-base font-bold text-gray-800 line-clamp-1 mb-1">{item.name}</h4>
-                          <p className="text-xs text-gray-400 font-medium mb-auto">{item.variantName}</p>
-                          <div className="flex items-end justify-between mt-2">
-                            <span className="text-[#16A085] font-black">{formatPrice(item.priceMinor)}</span>
-                            <span className="text-xs font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100">จำนวน: {item.qty}</span>
+                          <h4 className="text-xs sm:text-sm font-bold text-gray-800 line-clamp-1 mb-0.5">
+                            {item.name}
+                          </h4>
+                          <p className="text-[11px] text-gray-400 font-medium mb-auto">{item.variantName}</p>
+                          <div className="flex items-end justify-between mt-1">
+                            <span className="text-[#16A085] font-black text-sm sm:text-base">
+                              {formatPrice(item.priceMinor)}
+                            </span>
+                            <span className="text-[11px] font-bold text-gray-500 bg-gray-50 px-2 py-0.5 rounded-md border border-gray-100">
+                              จำนวน: {item.qty}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -395,27 +469,23 @@ export default function CheckoutPageClient() {
                   </div>
 
                   {/* Coupon Bar for Shop */}
-                  <div className="px-6 py-3.5 bg-gradient-to-r from-teal-50/50 to-emerald-50/30 border-t border-gray-100 flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-[#16A085]/10 text-[#16A085] flex items-center justify-center text-xs">
-                        <i className="fa-solid fa-ticket"></i>
-                      </div>
-                      <div>
-                        <span className="text-sm font-bold text-gray-800">โค้ดส่วนลดร้านค้า</span>
-                        {currentCoupon && (
-                          <span className="ml-2 text-xs font-mono font-bold bg-[#16A085] text-white px-2 py-0.5 rounded-md">
-                            {currentCoupon.coupon.code} (-{formatPrice(currentCoupon.discountMinor)})
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                  <div className="px-4 py-2.5 bg-emerald-50/20 border-t border-gray-100 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
+                      <i className="fa-solid fa-ticket text-[#16A085] text-xs"></i>
+                      <span className="font-bold text-gray-700">โค้ดส่วนลดร้านค้า</span>
+                      {currentCoupon && (
+                        <span className="text-[10px] font-mono font-bold bg-[#16A085] text-white px-2 py-0.5 rounded-md">
+                          {currentCoupon.coupon.code} (-{formatPrice(currentCoupon.discountMinor)})
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
                       {currentCoupon ? (
                         <>
                           <button
                             type="button"
-                            onClick={() => openVoucherModal(group.shopId, group.shopName, group.subtotalMinor)}
-                            className="text-xs text-[#16A085] font-bold hover:underline"
+                            onClick={() => openVoucherModal(group.shopId, resolvedShopName, group.subtotalMinor)}
+                            className="text-xs text-[#16A085] font-bold hover:underline cursor-pointer"
                           >
                             เปลี่ยน
                           </button>
@@ -423,7 +493,7 @@ export default function CheckoutPageClient() {
                           <button
                             type="button"
                             onClick={() => handleRemoveCoupon(group.shopId)}
-                            className="text-xs text-red-500 font-bold hover:underline"
+                            className="text-xs text-red-500 font-bold hover:underline cursor-pointer"
                           >
                             ยกเลิก
                           </button>
@@ -431,38 +501,50 @@ export default function CheckoutPageClient() {
                       ) : (
                         <button
                           type="button"
-                          onClick={() => openVoucherModal(group.shopId, group.shopName, group.subtotalMinor)}
-                          className="text-xs font-bold text-[#16A085] hover:text-[#117A65] flex items-center gap-1 bg-white px-3 py-1.5 rounded-full border border-teal-200 shadow-sm"
+                          onClick={() => openVoucherModal(group.shopId, resolvedShopName, group.subtotalMinor)}
+                          className="text-xs font-bold text-[#16A085] hover:text-[#117A65] flex items-center gap-1 bg-white px-2.5 py-1 rounded-full border border-teal-200 shadow-2xs cursor-pointer"
                         >
-                          เลือกโค้ดส่วนลด <i className="fa-solid fa-chevron-right text-[10px]"></i>
+                          เลือกโค้ดส่วนลด <i className="fa-solid fa-chevron-right text-[9px]"></i>
                         </button>
                       )}
                     </div>
                   </div>
                   
-                  <div className="px-6 py-4 bg-gray-50/50 border-t border-gray-50 flex flex-col gap-1.5">
-                    <div className="flex justify-between items-center text-sm text-gray-600">
-                      <span>รวมราคาสินค้าร้านนี้</span>
-                      <span className="font-bold text-gray-800">{formatPrice(group.subtotalMinor)}</span>
-                    </div>
-                    {shopDiscount > 0 && (
-                      <div className="flex justify-between items-center text-sm text-[#16A085]">
-                        <span className="font-medium flex items-center gap-1">
-                          <i className="fa-solid fa-tag text-xs"></i> ส่วนลดคูปอง
+                  {/* Shop Subtotal: compact without redundant double lines */}
+                  <div className="px-4 py-2.5 bg-gray-50/50 border-t border-gray-100 flex flex-col gap-1 text-xs sm:text-sm">
+                    {shopDiscount > 0 ? (
+                      <>
+                        <div className="flex justify-between items-center text-gray-500 text-xs">
+                          <span>รวมราคาสินค้า</span>
+                          <span className="font-semibold text-gray-700">{formatPrice(group.subtotalMinor)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[#16A085] text-xs">
+                          <span className="flex items-center gap-1">
+                            <i className="fa-solid fa-tag text-[10px]"></i> ส่วนลดคูปอง
+                          </span>
+                          <span className="font-bold">-{formatPrice(shopDiscount)}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-gray-100">
+                          <span className="font-bold text-gray-700">ยอดรวมร้านนี้</span>
+                          <span className="font-black text-[#16A085] text-sm sm:text-base">
+                            {formatPrice(shopNetSubtotal)}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-gray-600 text-xs sm:text-sm">
+                          ยอดรวมร้านนี้ ({group.items.reduce((sum, item) => sum + item.qty, 0)} ชิ้น)
                         </span>
-                        <span className="font-bold">-{formatPrice(shopDiscount)}</span>
+                        <span className="font-black text-[#16A085] text-sm sm:text-base">
+                          {formatPrice(shopNetSubtotal)}
+                        </span>
                       </div>
                     )}
-                    <div className="flex justify-between items-center text-base pt-1 border-t border-gray-100">
-                      <span className="text-sm font-bold text-gray-700">ยอดรวมร้านนี้</span>
-                      <span className="font-black text-[#16A085] text-lg">{formatPrice(shopNetSubtotal)}</span>
-                    </div>
                   </div>
-                  <div className="px-6 py-4 bg-[#16A085]/5 flex items-center gap-3 text-sm border-t border-[#16A085]/10">
-                    <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-[#16A085] shadow-sm">
-                      <i className="fa-solid fa-truck-fast text-xs"></i>
-                    </div>
-                    <span className="text-gray-700 font-medium">ค่าจัดส่ง: <b className="text-[#16A085]">รอร้านค้าประเมินและแจ้งให้ทราบภายหลัง</b></span>
+                  <div className="px-4 py-2 bg-gray-50/30 flex items-center gap-2 text-xs text-gray-500 border-t border-gray-100">
+                    <i className="fa-solid fa-truck-fast text-[#16A085] text-xs"></i>
+                    <span>ค่าจัดส่ง: <b className="text-[#16A085] font-semibold">รอร้านค้าประเมินและแจ้งให้ทราบภายหลัง</b></span>
                   </div>
                 </div>
               );
@@ -471,56 +553,62 @@ export default function CheckoutPageClient() {
 
           {/* Right: Summary */}
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 sticky top-24">
-              <h3 className="font-black text-xl text-gray-800 mb-6 flex items-center gap-2">
-                <i className="fa-solid fa-receipt text-gray-400"></i> สรุปคำสั่งซื้อ
+            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-xs border border-gray-100 p-4 sm:p-5 sticky top-20">
+              <h3 className="font-bold text-base text-gray-800 mb-4 flex items-center gap-2 pb-2.5 border-b border-gray-100">
+                <i className="fa-solid fa-receipt text-[#16A085] text-sm"></i> สรุปคำสั่งซื้อ
               </h3>
               
-              <div className="space-y-4 mb-6 text-sm font-medium">
+              <div className="space-y-2.5 mb-4 text-xs sm:text-sm font-medium">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-500">ยอดรวมสินค้า ({cart.length} ชิ้น)</span>
-                  <span className="font-bold text-gray-800 text-base">{formatPrice(totalPriceMinor)}</span>
+                  <span className="text-gray-500">ยอดรวมสินค้า ({checkoutCart.length} ชิ้น)</span>
+                  <span className="font-bold text-gray-800">{formatPrice(totalPriceMinor)}</span>
                 </div>
                 {totalDiscountMinor > 0 && (
                   <div className="flex justify-between items-center text-[#16A085]">
                     <span className="font-bold flex items-center gap-1.5">
                       <i className="fa-solid fa-ticket text-xs"></i> ส่วนลดจากคูปอง
                     </span>
-                    <span className="font-black text-base">-{formatPrice(totalDiscountMinor)}</span>
+                    <span className="font-black">-{formatPrice(totalDiscountMinor)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center">
                   <span className="text-gray-500">ค่าจัดส่ง</span>
-                  <span className="text-[#16A085] font-bold bg-[#D4F1BB]/30 px-2 py-0.5 rounded-full text-xs">ร้านแจ้งภายหลัง</span>
+                  <span className="text-[#16A085] font-bold bg-emerald-50 px-2 py-0.5 rounded-md text-[11px] border border-emerald-200/60">
+                    ร้านแจ้งภายหลัง
+                  </span>
                 </div>
                 
-                <div className="border-t-2 border-gray-100 border-dashed pt-4 flex justify-between items-end mt-2">
-                  <span className="font-bold text-gray-600">ยอดชำระเบื้องต้น</span>
+                <div className="border-t border-gray-100 border-dashed pt-3 flex justify-between items-end mt-1">
+                  <span className="font-bold text-gray-700">ยอดชำระเบื้องต้น</span>
                   <div className="text-right">
-                    <span className="font-black text-[#16A085] text-3xl block leading-none">{formatPrice(netTotalPriceMinor)}</span>
+                    <span className="font-black text-[#16A085] text-2xl block leading-none">
+                      {formatPrice(netTotalPriceMinor)}
+                    </span>
                     {totalDiscountMinor > 0 && (
-                      <span className="text-[11px] text-gray-400 font-medium block mt-1">ประหยัดไป {formatPrice(totalDiscountMinor)}</span>
+                      <span className="text-[10px] text-gray-400 font-medium block mt-1">
+                        ประหยัดไป {formatPrice(totalDiscountMinor)}
+                      </span>
                     )}
                   </div>
                 </div>
               </div>
               
-              <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 mb-6">
-                <p className="text-xs text-yellow-700 font-medium leading-relaxed">
-                  <i className="fa-solid fa-circle-exclamation text-yellow-500 mr-1.5"></i>
-                  คุณยังไม่ต้องชำระเงินในขั้นตอนนี้ ร้านค้าจะทำการประเมินค่าจัดส่งภายใน 24 ชม. หลังยืนยันออเดอร์ หากค่าจัดส่งสูงเกินไป คุณสามารถกดยกเลิกได้
-                </p>
+              <div className="bg-amber-50/80 border border-amber-200/70 rounded-xl p-2.5 sm:p-3 mb-4 text-[11px] sm:text-xs text-amber-800 flex items-start gap-2 leading-relaxed">
+                <i className="fa-solid fa-circle-info text-amber-500 text-xs mt-0.5 flex-shrink-0"></i>
+                <span>
+                  คุณยังไม่ต้องชำระเงินในขั้นตอนนี้ ร้านค้าจะทำการประเมินค่าจัดส่งภายใน 24 ชม. หากค่าจัดส่งสูงเกินไป คุณสามารถกดยกเลิกได้
+                </span>
               </div>
               
               <button 
                 onClick={handlePlaceOrder} 
                 disabled={isSubmitting}
-                className="w-full btn-minimal text-white font-bold py-4 rounded-full shadow-md transition-all disabled:opacity-50"
+                className="w-full bg-[#16A085] hover:bg-[#12876f] text-white font-bold py-3 sm:py-3.5 rounded-xl sm:rounded-2xl transition-all shadow-sm hover:shadow active:scale-98 text-sm sm:text-base flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {isSubmitting ? (
-                  <><i className="fa-solid fa-spinner fa-spin mr-2"></i> กำลังประมวลผล...</>
+                  <><i className="fa-solid fa-spinner fa-spin text-sm"></i> กำลังประมวลผล...</>
                 ) : (
-                  <><i className="fa-solid fa-check mr-2"></i> ยืนยันการสั่งซื้อเลย</>
+                  <><i className="fa-solid fa-check text-sm"></i> ยืนยันการสั่งซื้อเลย</>
                 )}
               </button>
             </div>

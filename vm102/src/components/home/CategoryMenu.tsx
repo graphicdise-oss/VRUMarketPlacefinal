@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { categoryApi, CategoryDto } from "@/lib/api";
 
-import { getDynamicStyle } from "@/lib/category-styles";
+import { getCategoryStyle } from "@/lib/category-styles";
 
 export default function CategoryMenu() {
   const [categories, setCategories] = useState<CategoryDto[]>([]);
@@ -50,7 +50,7 @@ export default function CategoryMenu() {
             }}
           >
             {categories.map((cat) => {
-              const styling = getDynamicStyle(cat.name);
+              const styling = getCategoryStyle(cat);
               const bgClass = styling.bgColor;
               const iconColor = styling.textColor;
               const hoverBg = styling.hoverBg;

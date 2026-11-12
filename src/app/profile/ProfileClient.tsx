@@ -100,7 +100,7 @@ export default function ProfileClient() {
       <div className="max-w-7xl mx-auto w-full px-4 pt-6 md:pt-8 pb-0">
         <Breadcrumb items={[{ label: "โปรไฟล์" }]} />
       </div>
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 pt-4 pb-8 flex flex-col md:flex-row gap-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-24 md:pb-8 flex flex-col md:flex-row gap-6 md:gap-8">
         
         {/* Sidebar */}
         <ProfileSidebar name={name} avatarUrl={avatarUrl} />

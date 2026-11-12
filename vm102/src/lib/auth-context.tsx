@@ -24,21 +24,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // ดึง CSRF Token ทุกครั้งที่เปิดแอป ตามกฎ FRONTEND-NOTES.md
       await authApi.fetchCsrf();
-      
+
       const userData = (await authApi.me()) as unknown as User;
       if (!userData.displayName && userData.email) {
         userData.displayName = userData.email.split("@")[0];
       }
-      
+
       try {
         const myShop = await shopApi.getMine();
         if (myShop && myShop.id) {
           userData.shopId = myShop.id;
         }
-      } catch (e) {
+      } catch {
         // User has no shop, which is fine
       }
-      
+
       setUser(userData);
     } catch {
       setUser(null);
@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
-     
+
     refreshUser().finally(() => {
       if (isMounted) setIsLoading(false);
     });
@@ -57,24 +57,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (identifier: string, password: string) => {
     // ยิง API Login ของจริงไปที่ Backend
     const userData = (await authApi.login({ email: identifier, password })) as unknown as User;
-    
+
     // หลังล็อกอินสำเร็จ CSRF Token เดิมจะใช้ไม่ได้แล้ว (ผูกกับ Session เก่า)
     // ต้องดึง Token ใหม่ทันที
     await authApi.fetchCsrf();
-    
+
     if (!userData.displayName && userData.email) {
       userData.displayName = userData.email.split("@")[0];
     }
-    
+
     try {
       const myShop = await shopApi.getMine();
       if (myShop && myShop.id) {
         userData.shopId = myShop.id;
       }
-    } catch (e) {
+    } catch {
       // User has no shop
     }
-    
+
     setUser(userData);
     return userData;
   }, []);

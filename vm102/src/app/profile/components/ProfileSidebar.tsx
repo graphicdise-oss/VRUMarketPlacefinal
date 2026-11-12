@@ -26,7 +26,6 @@ export default function ProfileSidebar({ name, avatarUrl }: ProfileSidebarProps)
   
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isCommunityAdmin = user && (user.adminCommunityIds && user.adminCommunityIds.length > 0);
-  const isAdmin = isSuperAdmin || isCommunityAdmin;
 
   let menuItems: MenuItem[] = [
     {
@@ -45,6 +44,18 @@ export default function ProfileSidebar({ name, avatarUrl }: ProfileSidebarProps)
       matchPath: "/profile/coupons",
       icon: "fa-solid fa-ticket",
       label: "โค้ดส่วนลดที่เราเก็บ",
+    },
+    {
+      href: "/profile/wishlist",
+      matchPath: "/profile/wishlist",
+      icon: "fa-regular fa-heart",
+      label: "สินค้าที่ถูกใจ",
+    },
+    {
+      href: "/profile/following",
+      matchPath: "/profile/following",
+      icon: "fa-solid fa-store",
+      label: "ร้านค้าที่ติดตาม",
     },
     {
       href: "/profile/addresses?from=profile",
@@ -68,7 +79,8 @@ export default function ProfileSidebar({ name, avatarUrl }: ProfileSidebarProps)
       icon: "fa-solid fa-store",
       label: "ร้านค้าของฉัน",
     }] : [{
-      href: "/register-shop",
+      href: "/register-shop?from=profile",
+      matchPath: "/register-shop",
       icon: "fa-solid fa-store",
       label: "เปิดร้านค้ากับเรา",
     }])
@@ -78,20 +90,29 @@ export default function ProfileSidebar({ name, avatarUrl }: ProfileSidebarProps)
     menuItems = [
       {
         href: "/super-admin",
-        icon: "fa-solid fa-shield-halved",
+        icon: "fa-solid fa-server",
         label: "การจัดการระบบส่วนกลาง",
+      },
+    ];
+  } else if (isCommunityAdmin) {
+    menuItems = [
+      {
+        href: "/admin/community",
+        icon: "fa-solid fa-shield-halved",
+        label: "จัดการชุมชน",
+      },
+      {
+        href: "/profile",
+        icon: "fa-regular fa-user",
+        label: "ข้อมูลส่วนตัว",
+        exact: true,
       },
       {
         href: "/profile/password",
         icon: "fa-solid fa-lock",
         label: "เปลี่ยนรหัสผ่าน",
-      }
+      },
     ];
-  } else if (isAdmin) {
-    menuItems = menuItems.filter(item => 
-      !['ที่อยู่จัดส่ง', 'คำสั่งซื้อของฉัน', 'รอการรีวิว', 'โค้ดส่วนลดที่เราเก็บ'].includes(item.label) &&
-      item.href !== "/register-shop"
-    );
   }
 
   // Find currently active menu item

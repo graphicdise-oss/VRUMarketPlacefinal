@@ -11,7 +11,7 @@ import { pendingProfileChangesWhere, pendingShopsWhere } from '../shop/shop-queu
 import { LIVE_SHOP_FILTER } from '../shop/shop-visibility.js';
 import { Clock } from '../time/clock.js';
 import { combineSales, confirmedSales } from './confirmed-sales.js';
-import { AdminDashboardDto, AdminQueueDto, CommunityOverviewDto, DashboardFiguresDto, OrderStatusCountsDto } from './dto/admin-dashboard.dto.js';
+import { AdminDashboardDto, AdminQueueDto, CategorySalesDto, CommunityOverviewDto, DashboardFiguresDto, OrderStatusCountsDto, TopProductDto } from './dto/admin-dashboard.dto.js';
 import { CommunityRefDto, PlatformDashboardDto } from './dto/platform-dashboard.dto.js';
 import { DashboardRangeDto, SalesDto, SalesTotalsDto } from './dto/sales.dto.js';
 import { ThaiDateQuery, ThaiDateRange, resolveThaiDateRange } from './thai-date-range.js';
@@ -60,6 +60,94 @@ export class AdminDashboardService {
       sales: SalesDto.from(combineSales(range, communityIds.map((id) => sales.get(id)))),
     });
 
+    const communityFilterSql = scope === 'all'
+      ? Prisma.empty
+      : Prisma.sql`AND s.community_id IN (${Prisma.join(scope.map((id) => Prisma.sql`${id}::uuid`))})`;
+
+    const rawCatSales = await this.prisma.$queryRaw<{
+      category_id: string;
+      category_name: string;
+      category_icon: string | null;
+      category_color: string | null;
+      amount_minor: bigint;
+      total_quantity: number;
+    }[]>`
+      SELECT c.id as category_id,
+             c.name as category_name,
+             c.icon as category_icon,
+             c.color as category_color,
+             COALESCE(SUM(oi.price_at_purchase * oi.quantity), 0)::bigint as amount_minor,
+             COALESCE(SUM(oi.quantity), 0)::int as total_quantity
+      FROM "order_item" oi
+      JOIN "order" o ON o.id = oi.order_id
+      JOIN "product_variant" pv ON pv.id = oi.variant_id
+      JOIN "product" p ON p.id = pv.product_id
+      JOIN "shop" s ON s.id = p.shop_id
+      JOIN "category" c ON c.id = p.category_id
+      WHERE o.status NOT IN ('CANCELLED', 'REFUND_ORDERED', 'REFUNDED')
+        ${communityFilterSql}
+      GROUP BY c.id, c.name, c.icon, c.color
+      ORDER BY amount_minor DESC
+    `;
+
+    const categorySales: CategorySalesDto[] = rawCatSales.map((row) => ({
+      categoryId: row.category_id,
+      name: row.category_name,
+      icon: row.category_icon,
+      color: row.category_color,
+      totalSales: Number(row.amount_minor) / 100,
+      totalQuantity: row.total_quantity,
+    }));
+
+    const rawTopProducts = await this.prisma.$queryRaw<{
+      product_id: string;
+      product_name: string;
+      shop_name: string;
+      community_name: string;
+      category_name: string;
+      category_icon: string | null;
+      category_color: string | null;
+      total_sales_minor: bigint;
+      total_sold: number;
+      image_id: string | null;
+    }[]>`
+      SELECT p.id as product_id,
+             p.name as product_name,
+             s.name as shop_name,
+             comm.name as community_name,
+             c.name as category_name,
+             c.icon as category_icon,
+             c.color as category_color,
+             COALESCE(SUM(oi.price_at_purchase * oi.quantity), 0)::bigint as total_sales_minor,
+             COALESCE(SUM(oi.quantity), 0)::int as total_sold,
+             (SELECT pi.id FROM product_image pi WHERE pi.product_id = p.id AND pi.approved_at IS NOT NULL ORDER BY pi.created_at ASC LIMIT 1) as image_id
+      FROM "order_item" oi
+      JOIN "order" o ON o.id = oi.order_id
+      JOIN "product_variant" pv ON pv.id = oi.variant_id
+      JOIN "product" p ON p.id = pv.product_id
+      JOIN "shop" s ON s.id = p.shop_id
+      JOIN "community" comm ON comm.id = s.community_id
+      JOIN "category" c ON c.id = p.category_id
+      WHERE o.status NOT IN ('CANCELLED', 'REFUND_ORDERED', 'REFUNDED')
+        ${communityFilterSql}
+      GROUP BY p.id, p.name, s.name, comm.name, c.name, c.icon, c.color
+      ORDER BY total_sales_minor DESC
+      LIMIT 5
+    `;
+
+    const topProducts: TopProductDto[] = rawTopProducts.map((row) => ({
+      productId: row.product_id,
+      name: row.product_name,
+      shopName: row.shop_name,
+      communityName: row.community_name,
+      categoryName: row.category_name,
+      categoryIcon: row.category_icon,
+      categoryColor: row.category_color,
+      totalSales: Number(row.total_sales_minor) / 100,
+      totalSold: row.total_sold,
+      imageId: row.image_id,
+    }));
+
     return {
       range: DashboardRangeDto.from(range),
       communities: communities.map((community) => {
@@ -67,6 +155,8 @@ export class AdminDashboardService {
         return { communityId: community.id, name: community.name, ...figures, sales: SalesTotalsDto.from(figures.sales) };
       }),
       total: figuresOf(communities.map((community) => community.id)),
+      categorySales,
+      topProducts,
     };
   }
 

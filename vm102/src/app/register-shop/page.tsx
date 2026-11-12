@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import { Suspense } from "react";
 import RegisterShopClient from "./RegisterShopClient";
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function RegisterShopPage() {
-  return <RegisterShopClient />;
+  return (
+    <Suspense fallback={null}>
+      <RegisterShopClient />
+    </Suspense>
+  );
 }

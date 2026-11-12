@@ -135,6 +135,7 @@ export default function SellerSettingsClient() {
       if (shopData) {
         setShopId(shopData.id);
         setShopName(shopData.name);
+        setInitialShopName(shopData.name);
         const parsed = parseDescription(shopData.description || "");
         setDescription(parsed.cleanDesc);
         setInitialDescription(parsed.cleanDesc);
@@ -189,17 +190,18 @@ export default function SellerSettingsClient() {
 
     setIsSubmitting(true);
     try {
-      const isShopInfoChanged = (shopName !== initialShopName) || 
+      const isShopTextChanged = (shopName !== initialShopName) || 
         (description !== initialDescription) || 
         (phone !== initialPhone) || 
         (locationText !== initialLocationText) || 
         (latitude !== initialLatitude) || 
-        (longitude !== initialLongitude) || 
-        (logoFile !== null);
+        (longitude !== initialLongitude);
 
-      // 1. Update Shop
-      const formattedDesc = formatDescription(description, phone, locationText, latitude, longitude);
-      await shopApi.updateProfile({ name: shopName, description: formattedDesc || null });
+      // 1. Update Shop text profile (only if text info changed)
+      if (isShopTextChanged) {
+        const formattedDesc = formatDescription(description, phone, locationText, latitude, longitude);
+        await shopApi.updateProfile({ name: shopName, description: formattedDesc || "" });
+      }
 
       // 1.1 Upload logo if changed
       if (logoFile) {
@@ -249,7 +251,7 @@ export default function SellerSettingsClient() {
         await paymentChannelApi.uploadQr(channelIdToUploadQR, qrImage);
       }
 
-      if (approvalStatus === "APPROVED" && isShopInfoChanged) {
+      if (approvalStatus === "APPROVED" && (isShopTextChanged || logoFile !== null)) {
         alert("บันทึกข้อมูลเรียบร้อย!\n• ข้อมูลร้านค้า: ส่งคำขอไปยังแอดมินชุมชนเพื่อรอตรวจสอบก่อนแสดงผลจริง\n• ช่องทางรับเงิน: อัปเดตและมีผลทันที");
       } else {
         alert("บันทึกการตั้งค่าร้านค้าเรียบร้อยแล้ว");

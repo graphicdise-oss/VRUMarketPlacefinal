@@ -18,9 +18,9 @@ export default function Footer() {
             </div>
             <p className="text-sm text-gray-500 mb-6 leading-relaxed max-w-xs">สินค้าท้องถิ่น ส่งตรงจากชุมชนถึงมือคุณด้วยความใส่ใจและเชื่อถือได้</p>
             <div className="flex gap-4 text-xl justify-center md:justify-start">
-              <a href="#" className="w-10 h-10 bg-gray-50 flex items-center justify-center rounded-full text-gray-400 hover:text-[#1877F2] hover:bg-blue-50 transition"><i className="fa-brands fa-facebook"></i></a>
-              <a href="#" className="w-10 h-10 bg-gray-50 flex items-center justify-center rounded-full text-gray-400 hover:text-[#E1306C] hover:bg-pink-50 transition"><i className="fa-brands fa-instagram"></i></a>
-              <a href="#" className="w-10 h-10 bg-gray-50 flex items-center justify-center rounded-full text-gray-400 hover:text-[#00B900] hover:bg-green-50 transition"><i className="fa-brands fa-line"></i></a>
+              <a href="https://www.facebook.com/valaya.vru" target="_blank" rel="noopener noreferrer" aria-label="Facebook มหาวิทยาลัยราชภัฏวไลยอลงกรณ์" className="w-10 h-10 bg-gray-50 flex items-center justify-center rounded-full text-gray-400 hover:text-[#1877F2] hover:bg-blue-50 transition"><i className="fa-brands fa-facebook"></i></a>
+              <a href="https://www.instagram.com/valayalongkorn" target="_blank" rel="noopener noreferrer" aria-label="Instagram VRU" className="w-10 h-10 bg-gray-50 flex items-center justify-center rounded-full text-gray-400 hover:text-[#E1306C] hover:bg-pink-50 transition"><i className="fa-brands fa-instagram"></i></a>
+              <a href="https://page.line.me/vru" target="_blank" rel="noopener noreferrer" aria-label="LINE Official Account" className="w-10 h-10 bg-gray-50 flex items-center justify-center rounded-full text-gray-400 hover:text-[#00B900] hover:bg-green-50 transition"><i className="fa-brands fa-line"></i></a>
             </div>
           </div>
 
@@ -45,6 +45,11 @@ export default function Footer() {
       </div>
 
       <div className="bg-gray-50 pt-6 pb-20 md:pb-6 text-center text-xs text-gray-400 font-medium border-t border-gray-100">
+        <div className="flex justify-center items-center gap-4 mb-2">
+          <Link href="/terms" className="hover:text-gray-600 transition">ข้อกำหนดการใช้งาน</Link>
+          <span>•</span>
+          <Link href="/privacy" className="hover:text-gray-600 transition">นโยบายความเป็นส่วนตัว</Link>
+        </div>
         &copy; 2026 มหาวิทยาลัยราชภัฏวไลยอลงกรณ์ ในพระบรมราชูปถัมภ์ สงวนลิขสิทธิ์
       </div>
     </footer>

@@ -13,6 +13,7 @@ import { FrozenOrderAdminDto, FrozenOrderQueueItemDto } from '../dto/frozen-orde
 import { RuleFrozenOrderDto } from '../dto/rule-frozen-order.dto.js';
 import { OrderStockAdjustmentPort } from '../ports/order-stock-adjustment.port.js';
 import { OrderFreezeService } from './order-freeze.service.js';
+import { restoreOrderCouponClaim } from '../common/restore-order-coupon-claim.js';
 
 /**
  * #62: the community-admin side of a frozen order — the masked read (I5) and the one decision
@@ -150,6 +151,7 @@ export class FrozenOrderService {
               updatedAt: now,
             },
           });
+          await restoreOrderCouponClaim(tx, orderId);
         } else if (order.status !== 'REFUND_ORDERED') {
           destination = 'REFUND_ORDERED';
           stockWasCut = STOCK_CUT_STATUSES.includes(order.status);

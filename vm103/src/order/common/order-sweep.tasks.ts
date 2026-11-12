@@ -20,6 +20,7 @@ import {
   SHIPPING_QUOTE_WINDOW_HOURS,
 } from './order-policy.js';
 import { markRefunded } from './refund-transition.js';
+import { restoreOrderCouponClaim } from './restore-order-coupon-claim.js';
 
 /**
  * Invariant 3's three clocks, as sweep tasks — the ticket #17 left the sweep point empty for.
@@ -533,6 +534,7 @@ async function cancelEach(
       continue;
     }
     handled += 1;
+    await restoreOrderCouponClaim(prisma, candidate.id);
 
     // #69: in-app only, both parties — an order disappearing on its own is worth telling both
     // sides about, even though only one of them was the one who missed the window.

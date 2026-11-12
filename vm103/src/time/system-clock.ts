@@ -13,6 +13,7 @@ import { Clock } from './clock.js';
 @Injectable()
 export class SystemClock extends Clock {
   now(): Date {
+    // eslint-disable-next-line no-restricted-syntax -- SystemClock is the one designated place allowed to read wall clock
     return new Date();
   }
 }

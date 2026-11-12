@@ -3,20 +3,23 @@
 import { useAuth } from "@/lib/auth-context";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import Breadcrumb from "@/components/ui/Breadcrumb";
+import MobileNav from "@/components/layout/MobileNav";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { favoriteApi } from "@/lib/api";
 import type { ProductDto } from "@/lib/api-modules/product";
 import { useRouter } from "next/navigation";
+import ProfileSidebar from "@/app/profile/components/ProfileSidebar";
+import Breadcrumb from "@/components/ui/Breadcrumb";
 
 export default function WishlistClient() {
   const { user, isLoading: isAuthLoading } = useAuth();
   
   const [favorites, setFavorites] = useState<ProductDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
 
-  const fetchFavorites = async () => {
+  const fetchFavorites = useCallback(async () => {
     try {
       const res = await favoriteApi.list();
       setFavorites(res);
@@ -30,9 +33,7 @@ export default function WishlistClient() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const router = useRouter();
+  }, [router]);
 
   useEffect(() => {
     if (!isAuthLoading && !user) {
@@ -44,7 +45,7 @@ export default function WishlistClient() {
     if (user) {
       fetchFavorites();
     }
-  }, [user]);
+  }, [user, fetchFavorites]);
 
   const handleRemove = async (productId: string) => {
     try {
@@ -56,21 +57,46 @@ export default function WishlistClient() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="min-h-screen flex flex-col bg-gray-50/50">
       <Header />
       
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 pt-4 pb-8 flex flex-col md:flex-row gap-8">
-        
-        {/* Content */}
-        <div className="flex-grow bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-10 w-full">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
-              <div className="w-10 h-10 bg-red-100 text-red-500 rounded-xl flex items-center justify-center">
-                <i className="fa-solid fa-heart"></i>
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-4 sm:pt-6 pb-24 md:pb-10">
+        <Breadcrumb
+          items={[
+            { label: "ข้อมูลส่วนตัว", href: "/profile" },
+            { label: "สินค้าที่ถูกใจ" },
+          ]}
+        />
+
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8 mt-4">
+          {/* Profile Sidebar */}
+          <aside className="w-full md:w-64 flex-shrink-0">
+            <ProfileSidebar
+              name={user?.displayName || "ผู้ใช้งาน"}
+              avatarUrl={user?.avatarUrl || null}
+            />
+          </aside>
+
+          {/* Content */}
+          <div className="flex-grow min-w-0 bg-white rounded-3xl shadow-sm border border-gray-100 p-5 sm:p-7 md:p-9">
+            <div className="flex items-center justify-between pb-5 mb-6 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center text-lg sm:text-xl shadow-xs border border-red-100/60">
+                  <i className="fa-solid fa-heart"></i>
+                </div>
+                <div>
+                  <h1 className="text-xl sm:text-2xl font-black text-gray-800">สินค้าที่ถูกใจ</h1>
+                  <p className="text-xs sm:text-sm text-gray-500 font-medium">
+                    สินค้าชุมชนที่คุณบันทึกไว้สำหรับเลือกซื้อในภายหลัง
+                  </p>
+                </div>
               </div>
-              สินค้าที่ถูกใจ
-            </h2>
-          </div>
+              {!isLoading && favorites.length > 0 && (
+                <span className="text-xs sm:text-sm bg-red-50 text-red-500 font-bold px-3 py-1.5 rounded-full border border-red-200/60">
+                  {favorites.length} รายการ
+                </span>
+              )}
+            </div>
           
           {isLoading ? (
             <div className="py-12 flex justify-center items-center">
@@ -88,7 +114,7 @@ export default function WishlistClient() {
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
               {favorites.map(product => (
                 <div key={product.id} className="bg-white border border-gray-100 rounded-2xl overflow-hidden hover:shadow-md transition-shadow flex flex-col group relative">
                   <div className="aspect-[4/3] bg-gray-100 relative overflow-hidden">
@@ -118,10 +144,12 @@ export default function WishlistClient() {
               ))}
             </div>
           )}
+          </div>
         </div>
       </main>
 
       <Footer />
+      <MobileNav />
     </div>
   );
 }

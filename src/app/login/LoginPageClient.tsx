@@ -131,7 +131,7 @@ export default function LoginPageClient() {
                 <input type="checkbox" className="h-4 w-4 text-[#A5E3A9] focus:ring-[#A5E3A9] border-gray-300 rounded bg-[#E3EDE8]" />
                 <label className="ml-2 block text-xs text-gray-500 font-medium">จำการเข้าสู่ระบบ</label>
               </div>
-              <a href="#" className="text-xs font-medium text-gray-500 hover:text-gray-800 transition">ลืมรหัสผ่าน?</a>
+              <Link href="/forgot-password" className="text-xs font-medium text-gray-500 hover:text-gray-800 transition">ลืมรหัสผ่าน?</Link>
             </div>
 
             <div className="pt-6">

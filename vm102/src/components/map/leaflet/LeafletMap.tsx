@@ -1,11 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import HeatmapLayer from "./HeatmapLayer";
 import { HeatMapPoint } from "../HeatMapDisplay";
+
+function MapResizer() {
+  const map = useMap();
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [map]);
+  return null;
+}
 
 // Fix Leaflet's default icon path issues in Next.js
 const DefaultIcon = L.icon({
@@ -36,11 +47,11 @@ export default function LeafletMap({ points, centerLat, centerLng, zoom = 12 }: 
   }, []);
 
   if (!mounted) {
-    return <div className="h-[400px] w-full bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 font-bold">กำลังโหลดแผนที่ Leaflet...</div>;
+    return <div className="h-[260px] sm:h-[400px] w-full bg-gray-50 flex items-center justify-center rounded-2xl text-gray-400 font-bold text-xs sm:text-sm">กำลังโหลดแผนที่ Leaflet...</div>;
   }
 
   return (
-    <div className="h-[400px] w-full rounded-2xl overflow-hidden shadow-sm border border-gray-100 relative z-0">
+    <div className="h-[260px] sm:h-[400px] w-full rounded-2xl overflow-hidden shadow-2xs border border-gray-100 relative z-0">
       <MapContainer 
         center={[centerLat, centerLng]} 
         zoom={zoom} 
@@ -52,6 +63,7 @@ export default function LeafletMap({ points, centerLat, centerLng, zoom = 12 }: 
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapResizer />
         
         {/* Heat Map Layer */}
         <HeatmapLayer points={points} />

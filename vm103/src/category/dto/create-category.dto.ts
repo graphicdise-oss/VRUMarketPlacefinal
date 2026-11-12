@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsString, Length } from 'class-validator';
+import { IsOptional, IsString, Length } from 'class-validator';
 import { MAX_CATEGORY_NAME_LENGTH, MIN_CATEGORY_NAME_LENGTH } from '../category-policy.js';
 
 export class CreateCategoryDto {
@@ -13,4 +13,14 @@ export class CreateCategoryDto {
   @IsString()
   @Length(MIN_CATEGORY_NAME_LENGTH, MAX_CATEGORY_NAME_LENGTH)
   name!: string;
+
+  @ApiPropertyOptional({ example: 'fa-shirt' })
+  @IsOptional()
+  @IsString()
+  icon?: string;
+
+  @ApiPropertyOptional({ example: 'purple' })
+  @IsOptional()
+  @IsString()
+  color?: string;
 }

@@ -7,13 +7,13 @@ import { ShopScopeResolver } from './shop-scope-resolver.js';
 export class CommunityIdScopeResolver implements ShopScopeResolver {
    
    
-  async resolveCommunityId(request: Request): Promise<string | null> {
+  resolveCommunityId(request: Request): Promise<string | null> {
     const communityId = request.params.communityId;
 
     if (typeof communityId !== 'string' || !isUuid(communityId)) {
-      return null;
+      return Promise.resolve(null);
     }
 
-    return communityId;
+    return Promise.resolve(communityId);
   }
 }

@@ -66,7 +66,7 @@ export default function PasswordClient() {
         </div>
       )}
 
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 pt-4 pb-8 flex flex-col md:flex-row gap-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-24 md:pb-8 flex flex-col md:flex-row gap-6 md:gap-8">
         
         {/* Sidebar */}
         <ProfileSidebar name={user?.displayName || ""} avatarUrl={user?.avatarUrl || null} />
@@ -78,15 +78,15 @@ export default function PasswordClient() {
             { label: "เปลี่ยนรหัสผ่าน" }
           ]} />
           
-          <div className="bg-white rounded-3xl p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-gray-100 mt-6">
-            <div className="mb-8 border-b border-gray-100 pb-6">
-              <h2 className="text-2xl font-black text-gray-800 flex items-center gap-3">
-                <div className="w-10 h-10 bg-[#16A085] rounded-xl flex items-center justify-center text-white shadow-sm">
-                  <i className="fa-solid fa-lock text-lg"></i>
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.03)] border border-gray-100 mt-4 sm:mt-6">
+            <div className="mb-6 sm:mb-8 border-b border-gray-100 pb-4 sm:pb-6">
+              <h2 className="text-xl sm:text-2xl font-black text-gray-800 flex items-center gap-2.5 sm:gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 bg-[#16A085] rounded-xl flex items-center justify-center text-white shadow-xs flex-shrink-0">
+                  <i className="fa-solid fa-lock text-base sm:text-lg"></i>
                 </div>
                 เปลี่ยนรหัสผ่าน
               </h2>
-              <p className="text-gray-500 mt-2 ml-14">เพื่อความปลอดภัยของบัญชี กรุณาอย่าเปิดเผยรหัสผ่านแก่ผู้อื่น</p>
+              <p className="text-xs sm:text-sm text-gray-500 mt-2 sm:ml-13">เพื่อความปลอดภัยของบัญชี กรุณาอย่าเปิดเผยรหัสผ่านแก่ผู้อื่น</p>
             </div>
 
             <form onSubmit={handleSubmit} className="max-w-xl mx-auto pt-4 pb-8">

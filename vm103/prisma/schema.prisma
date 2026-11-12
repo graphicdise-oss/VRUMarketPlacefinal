@@ -1097,6 +1097,8 @@ model Category {
   id String @id @db.Uuid
 
   name String @unique @db.VarChar(100)
+  icon String? @db.VarChar(50)
+  color String? @db.VarChar(50)
 
   /// Retiring a category sets this rather than deleting the row: existing `Product`s and the
   /// `OrderItem` snapshots that will one day reference a category by name (invariant 5 — history
@@ -2643,6 +2645,20 @@ model RateLimitCounter {
   @@index([expiresAt])
   @@map("rate_limit_counter")
 }
+
+/// Anonymous search query logs for dynamic trending search keywords and catalog analytics
+model SearchKeywordLog {
+  id              String   @id @db.Uuid
+  query           String   @db.VarChar(128)
+  normalizedQuery String   @map("normalized_query") @db.VarChar(128)
+  resultCount     Int      @default(0) @map("result_count")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([normalizedQuery, createdAt])
+  @@index([createdAt])
+  @@map("search_keyword_log")
+}
+
 
 
 

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { productApi, categoryApi } from "@/lib/api";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import { getErrorMessage } from "@/lib/utils";
+import ProductDescription from "@/components/product/ProductDescription";
 
 export default function EditProductClient({ productId }: { productId: string }) {
   const router = useRouter();
@@ -16,6 +17,7 @@ export default function EditProductClient({ productId }: { productId: string }) 
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
+  const [previewDesc, setPreviewDesc] = useState(false);
   const [variants, setVariants] = useState([{ id: 0, name: "ขนาดปกติ", priceBaht: "", stock: "" }]);
   const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
 
@@ -201,15 +203,63 @@ export default function EditProductClient({ productId }: { productId: string }) 
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">รายละเอียดสินค้า *</label>
-                <textarea 
-                  required 
-                  rows={5} 
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm" 
-                  placeholder="อธิบายจุดเด่น ส่วนผสม หรือวิธีใช้งาน..."
-                ></textarea>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-bold text-gray-700">รายละเอียดสินค้า *</label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = window.prompt("กรุณากรอก URL ลิงก์รูปภาพที่ต้องการแทรกในรายละเอียดสินค้า (เช่น https://example.com/banner.jpg):");
+                        if (url && url.trim()) {
+                          const trimmed = url.trim();
+                          const alt = window.prompt("คำอธิบายรูปภาพ (ไม่บังคับ):") || "ภาพรายละเอียดสินค้า";
+                          const imageMarkdown = `\n![${alt}](${trimmed})\n`;
+                          setDescription(prev => prev ? `${prev}\n${imageMarkdown}` : imageMarkdown);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs font-bold text-[#16A085] bg-[#D4F1BB]/40 hover:bg-[#D4F1BB]/80 rounded-lg transition-all flex items-center gap-1.5 border border-[#16A085]/30 cursor-pointer"
+                      title="แทรกลิงก์รูปภาพอธิบายสินค้า"
+                    >
+                      <i className="fa-regular fa-image"></i>
+                      <span>แทรกรูปภาพ</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDesc(!previewDesc)}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 border cursor-pointer ${
+                        previewDesc
+                          ? "bg-[#16A085] text-white border-[#16A085]"
+                          : "text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
+                      }`}
+                    >
+                      <i className={`fa-solid ${previewDesc ? "fa-pen-to-square" : "fa-eye"}`}></i>
+                      <span>{previewDesc ? "กลับไปแก้ไข" : "ดูตัวอย่าง"}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {previewDesc ? (
+                  <div className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl min-h-[140px]">
+                    <p className="text-xs font-bold text-gray-400 mb-2">ตัวอย่างการแสดงผลในหน้าร้าน:</p>
+                    <ProductDescription description={description} />
+                  </div>
+                ) : (
+                  <>
+                    <textarea 
+                      required 
+                      rows={6} 
+                      value={description}
+                      onChange={e => setDescription(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm" 
+                      placeholder="อธิบายจุดเด่น ส่วนผสม หรือวิธีใช้งาน... (สามารถกดปุ่ม 'แทรกรูปภาพ' เพื่อใส่รูปประกอบในรายละเอียดได้)"
+                    ></textarea>
+                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                      <i className="fa-solid fa-circle-info text-[#16A085]"></i>
+                      <span>รองรับข้อความและรูปภาพประกอบ (สามารถพิมพ์ลิงก์ภาพหรือกดปุ่ม &quot;แทรกรูปภาพ&quot; ด้านบนได้)</span>
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>

@@ -38,17 +38,17 @@ export default function ShopsClient() {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       <Header />
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 py-6 md:py-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-4 sm:pt-6 pb-24 md:pb-8">
         <Breadcrumb items={[{ label: "ร้านค้าชุมชน" }]} />
 
         {/* Page Header */}
-        <div className="text-center mb-10">
-          <h1 className="text-3xl md:text-4xl font-bold text-gray-800 mb-3">ร้านค้าชุมชนทั้งหมด</h1>
-          <p className="text-gray-500 max-w-2xl mx-auto">ค้นหาร้านค้าและผู้ประกอบการจากวิสาหกิจชุมชนต่างๆ สนับสนุนรายได้สู่ท้องถิ่นโดยตรง</p>
+        <div className="text-center mb-6 sm:mb-10">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2 sm:mb-3">ร้านค้าชุมชนทั้งหมด</h1>
+          <p className="text-xs sm:text-sm text-gray-500 max-w-2xl mx-auto">ค้นหาร้านค้าและผู้ประกอบการจากวิสาหกิจชุมชนต่างๆ สนับสนุนรายได้สู่ท้องถิ่นโดยตรง</p>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
+        <div className="flex flex-col sm:flex-row justify-between items-center mb-6 sm:mb-8 gap-4 bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100">
           <div className="relative w-full sm:w-96">
             <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
             <input

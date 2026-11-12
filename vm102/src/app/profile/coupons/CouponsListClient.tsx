@@ -150,7 +150,7 @@ export default function CouponsListClient() {
     <div className="min-h-screen bg-gray-50/60 flex flex-col">
       <Header />
 
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 pt-4 pb-12 flex flex-col md:flex-row gap-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-24 md:pb-12 flex flex-col md:flex-row gap-6 md:gap-8">
         {/* Profile Sidebar */}
         <ProfileSidebar name={user?.displayName || ""} avatarUrl={user?.avatarUrl || null} />
 
@@ -352,7 +352,6 @@ export default function CouponsListClient() {
                     const c = claim.coupon;
                     const isAvailable = claim.status === "AVAILABLE";
                     const isUsed = claim.status === "USED";
-                    const isExpired = claim.status === "EXPIRED";
                     const isPercent = c.discountType === "PERCENTAGE";
 
                     const minSpendText =

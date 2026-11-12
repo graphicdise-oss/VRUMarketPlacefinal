@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { bannerApi, BannerDto, CreateBannerDto, UpdateBannerDto } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { bannerApi, BannerDto, CreateBannerDto } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useToast } from "@/components/ui/Toast";
-import Image from "next/image";
 
 export default function BannerAdminClient() {
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const router = useRouter();
   const [banners, setBanners] = useState<BannerDto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const { showToast } = useToast();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -24,7 +28,13 @@ export default function BannerAdminClient() {
     isActive: true,
   });
 
-  const loadBanners = async () => {
+  useEffect(() => {
+    if (!isAuthLoading && (!user || user.role !== "SUPER_ADMIN")) {
+      router.push("/login?callbackUrl=/admin/banners");
+    }
+  }, [user, isAuthLoading, router]);
+
+  const loadBanners = useCallback(async () => {
     setIsLoading(true);
     try {
       const { items } = await bannerApi.getAllBanners();
@@ -35,11 +45,30 @@ export default function BannerAdminClient() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
-    loadBanners();
-  }, []);
+    if (!isAuthLoading && user?.role === "SUPER_ADMIN") {
+      loadBanners();
+    }
+  }, [isAuthLoading, user, loadBanners]);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const data = await bannerApi.uploadImage(file);
+      setFormData(prev => ({ ...prev, imageUrl: data.url }));
+      showToast("อัปโหลดรูปภาพสำเร็จ", "success");
+    } catch (error) {
+      console.error(error);
+      showToast("ไม่สามารถอัปโหลดรูปภาพได้ (รองรับเฉพาะไฟล์ JPG หรือ PNG)", "error");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   const handleOpenModal = (banner?: BannerDto) => {
     if (banner) {
@@ -121,6 +150,14 @@ export default function BannerAdminClient() {
       showToast("เกิดข้อผิดพลาดในการเปลี่ยนสถานะ", "error");
     }
   };
+
+  if (isAuthLoading || !user || user.role !== "SUPER_ADMIN") {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#16A085]"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -220,19 +257,33 @@ export default function BannerAdminClient() {
             
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
               <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    URL รูปภาพ <span className="text-red-500">*</span>
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-gray-700">
+                    รูปภาพแบนเนอร์ <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.imageUrl}
-                    onChange={(e) => setFormData({...formData, imageUrl: e.target.value})}
-                    placeholder="เช่น /images/banner01.png หรือ https://..."
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] focus:ring-2 focus:ring-[#16A085]/20 outline-none transition"
-                  />
-                  <p className="text-xs text-gray-500 mt-2">อัตราส่วนที่แนะนำ 3:1 (เช่น 1920x640)</p>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">อัปโหลดจากเครื่อง (JPG หรือ PNG)</label>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      onChange={handleImageUpload}
+                      disabled={isUploadingImage}
+                      className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#16A085]/10 file:text-[#16A085] hover:file:bg-[#16A085]/20 transition-all cursor-pointer"
+                    />
+                    {isUploadingImage && <span className="text-xs text-[#16A085] mt-1 block animate-pulse">กำลังอัปโหลด...</span>}
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">หรือระบุ URL รูปภาพ</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.imageUrl}
+                      onChange={(e) => setFormData({...formData, imageUrl: e.target.value})}
+                      placeholder="เช่น /api/v1/public/banners/images/... หรือ https://..."
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] focus:ring-2 focus:ring-[#16A085]/20 outline-none transition"
+                    />
+                    <p className="text-xs text-gray-500 mt-2">อัตราส่วนที่แนะนำ 1920x750 พิกเซล</p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

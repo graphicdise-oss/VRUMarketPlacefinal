@@ -3,21 +3,23 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, productApi, categoryApi } from "@/lib/api";
+import { productApi, categoryApi } from "@/lib/api";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import { getErrorMessage } from "@/lib/utils";
+import ProductDescription from "@/components/product/ProductDescription";
 
 export default function NewProductClient() {
   const router = useRouter();
-  
+
   // States
   const [images, setImages] = useState<File[]>([]);
   const [name, setName] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [description, setDescription] = useState("");
+  const [previewDesc, setPreviewDesc] = useState(false);
   // eslint-disable-next-line react-hooks/purity
   const [variants, setVariants] = useState([{ id: Date.now(), name: "ขนาดปกติ", priceBaht: "", stock: "" }]);
-  const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
+  const [categories, setCategories] = useState<{ id: string, name: string }[]>([]);
 
   useEffect(() => {
     categoryApi.list().then(res => setCategories(res.items)).catch(console.error);
@@ -74,7 +76,7 @@ export default function NewProductClient() {
       for (const img of images) {
         await productApi.addImage(product.id, img);
       }
-      
+
       setIsSubmitting(false);
       router.push("/seller/products");
     } catch (error) {
@@ -105,7 +107,7 @@ export default function NewProductClient() {
           { label: "เพิ่มสินค้าใหม่" }
         ]} />
         <form onSubmit={handleSubmit} className="space-y-6">
-          
+
           {/* GROUP A: Needs Approval if edited later */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="bg-orange-50 border-b border-orange-100 p-4">
@@ -114,7 +116,7 @@ export default function NewProductClient() {
               </h2>
               <p className="text-xs text-orange-700 mt-1">ส่วนนี้แอดมินชุมชนจะต้องเป็นคนตรวจสอบ หากอนาคตมีการแก้ไข สินค้าจะถูกดึงลงจากหน้าร้านชั่วคราว</p>
             </div>
-            
+
             <div className="p-6 space-y-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">รูปภาพสินค้า (สูงสุด 10 รูป, ไม่เกิน 10MB/รูป) *</label>
@@ -139,26 +141,26 @@ export default function NewProductClient() {
 
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">ชื่อสินค้า *</label>
-                <input 
-                  type="text" 
-                  required 
+                <input
+                  type="text"
+                  required
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm" 
-                  placeholder="เช่น น้ำพริกตาแดง สูตรคุณยาย" 
+                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm"
+                  placeholder="เช่น น้ำพริกตาแดง สูตรคุณยาย"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">หมวดหมู่สินค้า *</label>
-                <select 
-                  required 
+                <select
+                  required
                   value={categoryId}
                   onChange={e => setCategoryId(e.target.value)}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm bg-white"
                 >
                   <option value="">เลือกหมวดหมู่ส่วนกลาง...</option>
-                  {categories.map((cat: {id: string, name: string}) => (
+                  {categories.map((cat: { id: string, name: string }) => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
                   ))}
                 </select>
@@ -166,15 +168,63 @@ export default function NewProductClient() {
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">รายละเอียดสินค้า *</label>
-                <textarea 
-                  required 
-                  rows={5} 
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm" 
-                  placeholder="อธิบายจุดเด่น ส่วนผสม หรือวิธีใช้งาน..."
-                ></textarea>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-bold text-gray-700">รายละเอียดสินค้า *</label>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = window.prompt("กรุณากรอก URL ลิงก์รูปภาพที่ต้องการแทรกในรายละเอียดสินค้า (เช่น https://example.com/banner.jpg):");
+                        if (url && url.trim()) {
+                          const trimmed = url.trim();
+                          const alt = window.prompt("คำอธิบายรูปภาพ (ไม่บังคับ):") || "ภาพรายละเอียดสินค้า";
+                          const imageMarkdown = `\n![${alt}](${trimmed})\n`;
+                          setDescription(prev => prev ? `${prev}\n${imageMarkdown}` : imageMarkdown);
+                        }
+                      }}
+                      className="px-2.5 py-1 text-xs font-bold text-[#16A085] bg-[#D4F1BB]/40 hover:bg-[#D4F1BB]/80 rounded-lg transition-all flex items-center gap-1.5 border border-[#16A085]/30 cursor-pointer"
+                      title="แทรกลิงก์รูปภาพอธิบายสินค้า"
+                    >
+                      <i className="fa-regular fa-image"></i>
+                      <span>แทรกรูปภาพ</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDesc(!previewDesc)}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 border cursor-pointer ${
+                        previewDesc
+                          ? "bg-[#16A085] text-white border-[#16A085]"
+                          : "text-gray-600 bg-gray-100 hover:bg-gray-200 border-gray-200"
+                      }`}
+                    >
+                      <i className={`fa-solid ${previewDesc ? "fa-pen-to-square" : "fa-eye"}`}></i>
+                      <span>{previewDesc ? "กลับไปแก้ไข" : "ดูตัวอย่าง"}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {previewDesc ? (
+                  <div className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl min-h-[140px]">
+                    <p className="text-xs font-bold text-gray-400 mb-2">ตัวอย่างการแสดงผลในหน้าร้าน:</p>
+                    <ProductDescription description={description} />
+                  </div>
+                ) : (
+                  <>
+                    <textarea
+                      required
+                      rows={6}
+                      value={description}
+                      onChange={e => setDescription(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-sm"
+                      placeholder="อธิบายจุดเด่น ส่วนผสม หรือวิธีใช้งาน... (สามารถกดปุ่ม 'แทรกรูปภาพ' เพื่อใส่รูปประกอบในรายละเอียดได้)"
+                    ></textarea>
+                    <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                      <i className="fa-solid fa-circle-info text-[#16A085]"></i>
+                      <span>รองรับข้อความและรูปภาพประกอบ (สามารถพิมพ์ลิงก์ภาพหรือกดปุ่ม &quot;แทรกรูปภาพ&quot; ด้านบนได้)</span>
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -192,7 +242,7 @@ export default function NewProductClient() {
                 <i className="fa-solid fa-plus text-xs"></i> เพิ่มตัวเลือก
               </button>
             </div>
-            
+
             <div className="p-6">
               <div className="hidden md:grid grid-cols-12 gap-4 mb-2 px-2 text-sm font-bold text-gray-600">
                 <div className="col-span-5">ชื่อตัวเลือก (เช่น สี, ขนาด, รสชาติ) *</div>
@@ -206,56 +256,56 @@ export default function NewProductClient() {
                   <div key={v.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-gray-50 md:bg-transparent p-4 md:p-0 rounded-xl border border-gray-200 md:border-none">
                     <div className="col-span-1 md:col-span-5">
                       <label className="block md:hidden text-xs font-bold text-gray-500 mb-1">ชื่อตัวเลือก</label>
-                      <input 
-                        type="text" 
-                        required 
+                      <input
+                        type="text"
+                        required
                         value={v.name}
                         onChange={(e) => {
                           const newV = [...variants];
                           newV[index].name = e.target.value;
                           setVariants(newV);
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 text-sm" 
-                        placeholder="เช่น ขวดใหญ่ 500ml" 
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 text-sm"
+                        placeholder="เช่น ขวดใหญ่ 500ml"
                       />
                     </div>
                     <div className="col-span-1 md:col-span-3">
                       <label className="block md:hidden text-xs font-bold text-gray-500 mb-1">ราคา (บาท)</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         min="0"
                         step="1"
-                        required 
+                        required
                         value={v.priceBaht}
                         onChange={(e) => {
                           const newV = [...variants];
                           newV[index].priceBaht = e.target.value;
                           setVariants(newV);
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 text-sm" 
-                        placeholder="0" 
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 text-sm"
+                        placeholder="0"
                       />
                     </div>
                     <div className="col-span-1 md:col-span-3">
                       <label className="block md:hidden text-xs font-bold text-gray-500 mb-1">สต็อก</label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         min="0"
                         step="1"
-                        required 
+                        required
                         value={v.stock}
                         onChange={(e) => {
                           const newV = [...variants];
                           newV[index].stock = e.target.value;
                           setVariants(newV);
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 text-sm" 
-                        placeholder="0" 
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-green-500 focus:border-green-500 text-sm"
+                        placeholder="0"
                       />
                     </div>
                     <div className="col-span-1 text-right md:text-center mt-2 md:mt-0">
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={() => removeVariant(v.id)}
                         disabled={variants.length === 1}
                         className={`w-8 h-8 rounded-full flex items-center justify-center transition ${variants.length === 1 ? "text-gray-300 bg-gray-100 cursor-not-allowed" : "text-red-500 bg-red-50 hover:bg-red-500 hover:text-white"}`}

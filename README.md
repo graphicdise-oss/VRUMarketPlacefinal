@@ -50,7 +50,7 @@
   * **6.2.4 - 6.2.6 Order & Logistics:** จัดการสถานะคำสั่งซื้อครบวงจร (รอชำระ, ชำระแล้ว, จัดส่ง, สำเร็จ, ยกเลิก/ข้อพิพาท) พร้อมระบบบันทึกเลขพัสดุและลิงก์ติดตาม
   * **6.2.7 - 6.2.9 Marketing & Promotions:** ระบบโค้ดส่วนลด (Coupon/Promo Code) ทั้งแบบเปอร์เซ็นต์และจำนวนเงิน พร้อมป้ายแบนเนอร์และบทความประชาสัมพันธ์
 * **6.3 การจัดการโครงสร้างพื้นฐาน ฐานข้อมูล และความปลอดภัย (Infrastructure & Security):**
-  * **6.3.1 Database Integration:** จัดเก็บและสำรองฐานข้อมูลบนเซิร์ฟเวอร์ตามมาตรฐานศูนย์คอมพิวเตอร์ พร้อมไฟล์สำรอง (`vru_backup.sql`)
+  * **6.3.1 Database Integration:** จัดเก็บและสำรองฐานข้อมูลบนเซิร์ฟเวอร์ตามมาตรฐานศูนย์คอมพิวเตอร์ พร้อมชุดสคริปต์สำรองและกู้คืนข้อมูล (`backend/Backend-VRU-Marketplace-main/ops/backup/`)
   * **6.3.2 Security & PDPA:** ใช้งานผ่าน HTTPS/TLS, ระบบกำหนดสิทธิ์ตามบทบาท (RBAC: Super Admin, Community Admin, Seller, Buyer), ระบบยินยอมและคุ้มครองข้อมูลส่วนบุคคลตาม พ.ร.บ. PDPA
 
 ---
@@ -113,7 +113,6 @@ Vru-marketplace-main/
 ├── vm102/                             # การตั้งค่า Dockerfile & Docker Compose สำหรับ Frontend (VM 102)
 ├── vm103/                             # การตั้งค่า Dockerfile & Docker Compose สำหรับ Backend (VM 103)
 ├── scripts/                           # สคริปต์ตรวจเช็คความพร้อมระบบ (doctor.mjs, data-flow verification)
-├── vru_backup.sql                     # ไฟล์สำรองฐานข้อมูล PostgreSQL ฉบับสมบูรณ์ (Database Backup)
 ├── DEPLOYMENT_HANDOVER.md             # เอกสารคู่มือการขึ้นระบบและข้อมูลตรวจรับงานฉบับละเอียด
 └── docker-compose.yml                 # การรันระบบผ่าน Docker บนเครื่องนักพัฒนา (Local Dev)
 ```
@@ -165,11 +164,7 @@ npm run dev             # เริ่มทำงานที่ http://localho
 
 ### 6.2 การขึ้นระบบบนเครื่องแม่ข่ายจริง (Production VM Deployment)
 
-1. **VM 104 (Database):** รัน PostgreSQL 16 บนพอร์ต 5433 และนำเข้าฐานข้อมูลด้วยคำสั่ง:
-
-   ```bash
-   psql -U postgres -p 5433 -d vru_marketplace < vru_backup.sql
-   ```
+1. **VM 104 (Database):** รัน PostgreSQL 16 (สร้างฐานข้อมูล `vru_marketplace` ตามค่า `DATABASE_URL` ใน `vm103/.env`) จากนั้นเมื่อรัน Backend บน VM 103 service `migrate` จะทำ `npx prisma migrate deploy` ให้อัตโนมัติ (หรือสั่ง `npm run db:seed-all` เพิ่มเมื่อต้องการข้อมูลทดสอบ)
 
 2. **VM 103 (Backend):** คัดลอกโฟลเดอร์ `vm103` ไปยังเซิร์ฟเวอร์แล้วสั่งรันด้วย Docker Compose:
 

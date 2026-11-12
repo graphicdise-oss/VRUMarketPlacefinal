@@ -33,6 +33,12 @@ export const bannerApi = {
     return api.get<{ items: BannerDto[] }>("/admin/banners");
   },
 
+  uploadImage: async (file: File): Promise<{ url: string }> => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<{ url: string }>("/admin/banners/upload", formData);
+  },
+
   createBanner: async (data: CreateBannerDto): Promise<BannerDto> => {
     return api.post<BannerDto>("/admin/banners", data);
   },

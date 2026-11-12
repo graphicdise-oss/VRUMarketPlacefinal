@@ -9,7 +9,7 @@ import ArticleSection from "@/components/home/ArticleSection";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-gray-50/50 flex flex-col selection:bg-[#16A085]/30 selection:text-[#16A085]">
+    <div className="min-h-screen bg-gray-50/50 flex flex-col selection:bg-[#16A085]/30 selection:text-[#16A085] overflow-x-hidden w-full max-w-full">
       <Header />
       
       {/* Hero & Categories Section with Soft Gradient Background */}

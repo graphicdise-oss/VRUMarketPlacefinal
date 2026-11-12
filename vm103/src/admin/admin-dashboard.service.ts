@@ -71,7 +71,7 @@ export class AdminDashboardService {
 
     // 3. Sales
     // Calculate dateFilter
-     
+    // eslint-disable-next-line no-restricted-syntax -- wall clock reference for filter bounds
     const now = new Date();
      
     let dateFilter = new Date(0);

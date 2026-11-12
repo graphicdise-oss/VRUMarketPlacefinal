@@ -20,6 +20,10 @@ export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
 
+  const isSuperAdmin = user?.role === "SUPER_ADMIN";
+  const isCommunityAdmin = !!user?.adminCommunityIds && user.adminCommunityIds.length > 0;
+  const isAdmin = isSuperAdmin || isCommunityAdmin;
+
   // ป้องกันการเลื่อนหน้าจอด้านหลังเมื่อเปิด Mobile Drawer
   useEffect(() => {
     if (mobileDrawerOpen) {
@@ -39,12 +43,31 @@ export default function Header() {
           {/* Row 1: Logo, Nav Links, Right Controls */}
           <div className="flex items-center justify-between gap-4 py-2 md:py-2.5">
             {/* Logo Wrapper & Mobile Hamburger */}
-            <div className="flex items-center flex-shrink-0 gap-1.5 sm:gap-2">
+            <div className="flex items-center flex-shrink-0 gap-1 sm:gap-2">
+              {/* Mobile Back Button (เมื่อไม่ได้อยู่หน้าแรก) */}
+              {pathname !== "/" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== "undefined" && window.history.length > 1) {
+                      router.back();
+                    } else {
+                      router.push("/");
+                    }
+                  }}
+                  className="md:hidden p-2 -ml-1 text-gray-700 hover:text-[#16A085] hover:bg-gray-100 rounded-xl transition cursor-pointer active:scale-95"
+                  aria-label="ย้อนกลับ"
+                  title="ย้อนกลับ"
+                >
+                  <i className="fa-solid fa-arrow-left text-lg"></i>
+                </button>
+              )}
+
               {/* Mobile Hamburger Button (ขีด 3 ขีด) */}
               <button
                 type="button"
                 onClick={() => setMobileDrawerOpen(true)}
-                className="md:hidden p-2 -ml-1 text-gray-700 hover:text-[#16A085] hover:bg-gray-100 rounded-xl transition cursor-pointer"
+                className={`md:hidden p-2 ${pathname === "/" ? "-ml-1" : ""} text-gray-700 hover:text-[#16A085] hover:bg-gray-100 rounded-xl transition cursor-pointer`}
                 aria-label="เปิดเมนูนำทาง"
               >
                 <i className="fa-solid fa-bars text-xl"></i>
@@ -109,7 +132,7 @@ export default function Header() {
                   HOT
                 </span>
               </Link>
-              {isAuthenticated && !(user?.adminCommunityIds?.length || user?.role === 'SUPER_ADMIN') && (
+              {isAuthenticated && !isAdmin && (
                 <Link
                   href="/orders"
                   className={`px-1.5 py-1 transition whitespace-nowrap ${
@@ -205,40 +228,52 @@ export default function Header() {
                         <p className="text-xs text-gray-400 truncate">{user.email}</p>
                       </div>
                       <div className="py-1">
-                        {user.role === 'SUPER_ADMIN' ? (
-                          <Link href="/super-admin" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-900 hover:bg-[#16A085]/10 hover:text-[#16A085] transition font-bold">
-                            <i className="fa-solid fa-server w-4 text-[#16A085]"></i> จัดการระบบส่วนกลาง
-                          </Link>
+                        {isSuperAdmin ? (
+                          <>
+                            <Link href="/super-admin" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-900 bg-gray-100 hover:bg-gray-200 transition font-bold">
+                              <i className="fa-solid fa-server w-4 text-[#16A085]"></i> จัดการระบบส่วนกลาง
+                            </Link>
+                          </>
+                        ) : isCommunityAdmin ? (
+                          <>
+                            <Link href="/admin/community" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-purple-700 bg-purple-50 hover:bg-purple-100 transition font-bold">
+                              <i className="fa-solid fa-shield-halved w-4 text-purple-600"></i> จัดการชุมชน
+                            </Link>
+                            <Link href="/profile" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-regular fa-user w-4"></i> ข้อมูลส่วนตัว
+                            </Link>
+                            <Link href="/profile/password" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-solid fa-lock w-4"></i> เปลี่ยนรหัสผ่าน
+                            </Link>
+                          </>
                         ) : (
                           <>
                             <Link href="/profile" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
                               <i className="fa-regular fa-user w-4"></i> ข้อมูลส่วนตัว
                             </Link>
-
-                            {!(user.adminCommunityIds && user.adminCommunityIds.length > 0) && (
-                              <>
-                                <Link href="/profile/wishlist" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
-                                  <i className="fa-regular fa-heart w-4"></i> สินค้าที่ถูกใจ
-                                </Link>
-                                <Link href="/profile/coupons" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
-                                  <i className="fa-solid fa-ticket w-4"></i> โค้ดส่วนลดที่เราเก็บ
-                                </Link>
-                              </>
-                            )}
+                            <Link href="/profile/wishlist" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-regular fa-heart w-4"></i> สินค้าที่ถูกใจ
+                            </Link>
+                            <Link href="/profile/following" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-solid fa-store w-4"></i> ร้านค้าที่ติดตาม
+                            </Link>
+                            <Link href="/profile/coupons" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-solid fa-ticket w-4"></i> โค้ดส่วนลดที่เราเก็บ
+                            </Link>
+                            <Link href="/profile/addresses" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-solid fa-location-dot w-4"></i> ที่อยู่จัดส่ง
+                            </Link>
+                            <Link href="/profile/password" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-[#D4F1BB]/30 hover:text-[#16A085] transition">
+                              <i className="fa-solid fa-lock w-4"></i> เปลี่ยนรหัสผ่าน
+                            </Link>
 
                             {user.shopId ? (
                               <Link href="/seller" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#16A085] bg-[#16A085]/5 hover:bg-[#16A085]/10 transition">
                                 <i className="fa-solid fa-store w-4"></i> จัดการร้านค้า
                               </Link>
-                            ) : (!(user.adminCommunityIds && user.adminCommunityIds.length > 0) && (
+                            ) : (
                               <Link href="/register-shop" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-bold text-[#16A085] bg-[#16A085]/5 hover:bg-[#16A085]/10 transition">
                                 <i className="fa-solid fa-shop w-4"></i> ลงทะเบียนเปิดร้านค้า
-                              </Link>
-                            ))}
-
-                            {(user.adminCommunityIds && user.adminCommunityIds.length > 0) && (
-                              <Link href="/admin/community" onClick={() => setUserMenuOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm text-purple-600 hover:bg-purple-50 transition border-t border-gray-100 mt-1 pt-2">
-                                <i className="fa-solid fa-shield-halved w-4"></i> จัดการชุมชน
                               </Link>
                             )}
                           </>
@@ -392,7 +427,7 @@ export default function Header() {
                       HOT
                     </span>
                   </Link>
-                  {isAuthenticated && !(user?.adminCommunityIds?.length || user?.role === 'SUPER_ADMIN') && (
+                  {isAuthenticated && !isAdmin && (
                     <Link
                       href="/orders"
                       onClick={() => setMobileDrawerOpen(false)}
@@ -414,65 +449,115 @@ export default function Header() {
                     บัญชีของฉัน
                   </p>
                   <div className="space-y-1">
-                    <Link
-                      href="/profile"
-                      onClick={() => setMobileDrawerOpen(false)}
-                      className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
-                    >
-                      <i className="fa-regular fa-user w-5 text-center"></i>
-                      <span>ข้อมูลส่วนตัว</span>
-                    </Link>
-                    <Link
-                      href="/profile/coupons"
-                      onClick={() => setMobileDrawerOpen(false)}
-                      className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
-                    >
-                      <i className="fa-solid fa-ticket w-5 text-center text-[#16A085]"></i>
-                      <span>โค้ดส่วนลดที่เราเก็บ</span>
-                    </Link>
-                    <Link
-                      href="/profile/wishlist"
-                      onClick={() => setMobileDrawerOpen(false)}
-                      className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
-                    >
-                      <i className="fa-regular fa-heart w-5 text-center"></i>
-                      <span>สินค้าที่ถูกใจ</span>
-                    </Link>
-                    <Link
-                      href="/profile/addresses"
-                      onClick={() => setMobileDrawerOpen(false)}
-                      className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
-                    >
-                      <i className="fa-solid fa-location-dot w-5 text-center"></i>
-                      <span>ที่อยู่จัดส่ง</span>
-                    </Link>
-                    <Link
-                      href="/profile/password"
-                      onClick={() => setMobileDrawerOpen(false)}
-                      className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
-                    >
-                      <i className="fa-solid fa-lock w-5 text-center"></i>
-                      <span>เปลี่ยนรหัสผ่าน</span>
-                    </Link>
-
-                    {user.shopId ? (
-                      <Link
-                        href="/seller"
-                        onClick={() => setMobileDrawerOpen(false)}
-                        className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-[#16A085] bg-[#16A085]/5 hover:bg-[#16A085]/10 transition"
-                      >
-                        <i className="fa-solid fa-store w-5 text-center"></i>
-                        <span>จัดการร้านค้า</span>
-                      </Link>
+                    {isSuperAdmin ? (
+                      <>
+                        <Link
+                          href="/super-admin"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-gray-900 bg-gray-100 hover:bg-gray-200 transition"
+                        >
+                          <i className="fa-solid fa-server w-5 text-center text-[#16A085]"></i>
+                          <span>จัดการระบบส่วนกลาง</span>
+                        </Link>
+                      </>
+                    ) : isCommunityAdmin ? (
+                      <>
+                        <Link
+                          href="/admin/community"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 transition"
+                        >
+                          <i className="fa-solid fa-shield-halved w-5 text-center text-purple-600"></i>
+                          <span>จัดการชุมชน</span>
+                        </Link>
+                        <Link
+                          href="/profile"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-regular fa-user w-5 text-center"></i>
+                          <span>ข้อมูลส่วนตัว</span>
+                        </Link>
+                        <Link
+                          href="/profile/password"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-solid fa-lock w-5 text-center"></i>
+                          <span>เปลี่ยนรหัสผ่าน</span>
+                        </Link>
+                      </>
                     ) : (
-                      <Link
-                        href="/register-shop"
-                        onClick={() => setMobileDrawerOpen(false)}
-                        className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-[#16A085] bg-[#16A085]/5 hover:bg-[#16A085]/10 transition"
-                      >
-                        <i className="fa-solid fa-shop w-5 text-center"></i>
-                        <span>ลงทะเบียนเปิดร้านค้า</span>
-                      </Link>
+                      <>
+                        <Link
+                          href="/profile"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-regular fa-user w-5 text-center"></i>
+                          <span>ข้อมูลส่วนตัว</span>
+                        </Link>
+                        <Link
+                          href="/profile/coupons"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-solid fa-ticket w-5 text-center text-[#16A085]"></i>
+                          <span>โค้ดส่วนลดที่เราเก็บ</span>
+                        </Link>
+                        <Link
+                          href="/profile/wishlist"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-regular fa-heart w-5 text-center"></i>
+                          <span>สินค้าที่ถูกใจ</span>
+                        </Link>
+                        <Link
+                          href="/profile/following"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-solid fa-store w-5 text-center"></i>
+                          <span>ร้านค้าที่ติดตาม</span>
+                        </Link>
+                        <Link
+                          href="/profile/addresses"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-solid fa-location-dot w-5 text-center"></i>
+                          <span>ที่อยู่จัดส่ง</span>
+                        </Link>
+                        <Link
+                          href="/profile/password"
+                          onClick={() => setMobileDrawerOpen(false)}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-100 transition font-medium"
+                        >
+                          <i className="fa-solid fa-lock w-5 text-center"></i>
+                          <span>เปลี่ยนรหัสผ่าน</span>
+                        </Link>
+
+                        {user.shopId ? (
+                          <Link
+                            href="/seller"
+                            onClick={() => setMobileDrawerOpen(false)}
+                            className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-[#16A085] bg-[#16A085]/5 hover:bg-[#16A085]/10 transition"
+                          >
+                            <i className="fa-solid fa-store w-5 text-center"></i>
+                            <span>จัดการร้านค้า</span>
+                          </Link>
+                        ) : (
+                          <Link
+                            href="/register-shop"
+                            onClick={() => setMobileDrawerOpen(false)}
+                            className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-[#16A085] bg-[#16A085]/5 hover:bg-[#16A085]/10 transition"
+                          >
+                            <i className="fa-solid fa-shop w-5 text-center"></i>
+                            <span>ลงทะเบียนเปิดร้านค้า</span>
+                          </Link>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

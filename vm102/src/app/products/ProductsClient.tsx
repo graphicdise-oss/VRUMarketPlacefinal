@@ -6,7 +6,6 @@ import Footer from "@/components/layout/Footer";
 import MobileNav from "@/components/layout/MobileNav";
 import ProductCard from "@/components/home/ProductCard";
 import ProductCardSkeleton from "@/components/home/ProductCardSkeleton";
-import ProductModal from "@/components/product/ProductModal";
 import { StaggeredGrid, FadeIn } from "@/components/ui/Animations";
 
 import { Product } from "@/types";
@@ -14,6 +13,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Breadcrumb from "@/components/ui/Breadcrumb";
 import { productApi, categoryApi, communityApi, CategoryDto, CommunityDto } from "@/lib/api";
 import { mapPublicProductDto } from "@/lib/product-mapper";
+import { matchesProductSearch } from "@/lib/search-matcher";
+import { getCategoryStyle } from "@/lib/category-styles";
 
 /** Backend caps `limit` at 50 per request; we follow the cursor to load everything. */
 const FETCH_PAGE_SIZE = 50;
@@ -71,8 +72,6 @@ export default function ProductsClient() {
   };
 
   const hasAnyFilter = activeCategory !== "ALL" || activeCommunity !== "ALL" || hasPriceFilter || Boolean(searchQuery);
-  
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   
   const [productList, setProductList] = useState<Product[]>([]);
   const [categories, setCategories] = useState<CategoryDto[]>([]);
@@ -168,13 +167,8 @@ export default function ProductsClient() {
   const filteredProducts = productList
     .map(p => ({ ...p, communityName: communityNameById.get(p.communityId) ?? "" }))
     .filter(p => {
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const matchName = p.name?.toLowerCase().includes(q);
-        const matchDesc = p.description?.toLowerCase().includes(q);
-        const matchShop = p.shopName?.toLowerCase().includes(q);
-        const matchCat = p.categoryName?.toLowerCase().includes(q);
-        if (!matchName && !matchDesc && !matchShop && !matchCat) return false;
+      if (searchQuery && !matchesProductSearch(p, searchQuery)) {
+        return false;
       }
       const priceNum = lowestPrice(p);
       if (hasPriceFilter) {
@@ -274,30 +268,36 @@ export default function ProductsClient() {
               <i className="fa-solid fa-check text-xs text-[#16A085]"></i>
             )}
           </label>
-          {categories.filter(cat => cat.id !== "cat-7" && cat.name !== "ทั้งหมด").map(cat => (
-            <label
-              key={cat.id}
-              className={`flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-colors group ${
-                activeCategory === cat.id
-                  ? "bg-emerald-50 text-[#16A085] font-bold"
-                  : "hover:bg-gray-50 text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <input
-                  type="radio"
-                  name={`${scope}-category`}
-                  checked={activeCategory === cat.id}
-                  onChange={() => handleSelectCategory(cat.id)}
-                  className="w-4 h-4 text-[#16A085] focus:ring-[#16A085] border-gray-300 accent-[#16A085]"
-                />
-                <span className="text-sm truncate" title={cat.name}>{cat.name}</span>
-              </div>
-              {activeCategory === cat.id && (
-                <i className="fa-solid fa-check text-xs text-[#16A085]"></i>
-              )}
-            </label>
-          ))}
+          {categories.filter(cat => cat.id !== "cat-7" && cat.name !== "ทั้งหมด").map(cat => {
+            const style = getCategoryStyle(cat);
+            return (
+              <label
+                key={cat.id}
+                className={`flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer transition-colors group ${
+                  activeCategory === cat.id
+                    ? "bg-emerald-50 text-[#16A085] font-bold"
+                    : "hover:bg-gray-50 text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <input
+                    type="radio"
+                    name={`${scope}-category`}
+                    checked={activeCategory === cat.id}
+                    onChange={() => handleSelectCategory(cat.id)}
+                    className="w-4 h-4 text-[#16A085] focus:ring-[#16A085] border-gray-300 accent-[#16A085]"
+                  />
+                  <span className={`w-5 h-5 rounded-md ${style.bgColor} ${style.textColor} flex items-center justify-center text-[10px] flex-shrink-0`}>
+                    <i className={`fa-solid ${style.icon}`}></i>
+                  </span>
+                  <span className="text-sm truncate" title={cat.name}>{cat.name}</span>
+                </div>
+                {activeCategory === cat.id && (
+                  <i className="fa-solid fa-check text-xs text-[#16A085]"></i>
+                )}
+              </label>
+            );
+          })}
         </div>
       </div>
 
@@ -395,13 +395,13 @@ export default function ProductsClient() {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       <Header />
-      <main className="flex-grow max-w-7xl mx-auto w-full px-4 py-6 md:py-8">
+      <main className="flex-grow max-w-7xl mx-auto w-full px-3 sm:px-4 pt-4 sm:pt-6 pb-24 md:pb-8">
         <Breadcrumb items={[{ label: "ผลิตภัณฑ์ชุมชน" }]} />
         
         {/* Page Header */}
-        <div className="text-center mb-6">
-          <h1 className="text-3xl md:text-4xl font-black text-gray-800 mb-2">ผลิตภัณฑ์ชุมชน</h1>
-          <p className="text-gray-500 max-w-2xl mx-auto text-sm sm:text-base">เลือกซื้อสินค้าคุณภาพจากชุมชน สนับสนุนรายได้สู่ท้องถิ่นและเป็นมิตรกับสิ่งแวดล้อม</p>
+        <div className="text-center mb-5 sm:mb-6">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-gray-800 mb-1.5 sm:mb-2">ผลิตภัณฑ์ชุมชน</h1>
+          <p className="text-gray-500 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">เลือกซื้อสินค้าคุณภาพจากชุมชน สนับสนุนรายได้สู่ท้องถิ่นและเป็นมิตรกับสิ่งแวดล้อม</p>
         </div>
 
         <div className="flex flex-col md:flex-row gap-5 lg:gap-8">
@@ -569,9 +569,7 @@ export default function ProductsClient() {
               <StaggeredGrid key={`${sortBy}-${page}-${activeCategory}-${activeCommunity}`} className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 sm:gap-4 md:gap-3.5 lg:gap-5">
                 {pagedProducts.map((product) => (
                   <FadeIn key={product.id}>
-                    <div onClick={() => setSelectedProduct(product)} className="cursor-pointer h-full">
-                      <ProductCard product={product} />
-                    </div>
+                    <ProductCard product={product} />
                   </FadeIn>
                 ))}
               </StaggeredGrid>
@@ -707,7 +705,6 @@ export default function ProductsClient() {
 
       <Footer />
       <MobileNav />
-      {selectedProduct && <ProductModal product={selectedProduct} onClose={() => setSelectedProduct(null)} />}
     </div>
   );
 }

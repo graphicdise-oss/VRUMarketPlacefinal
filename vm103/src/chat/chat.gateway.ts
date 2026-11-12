@@ -249,10 +249,9 @@ export class ChatGateway implements OnGatewayInit {
   ): Promise<void> {
     await respond(ack, async () => {
       const user = await this.requireLiveUser(client);
-      const { roomId } = (body as { roomId?: string }) || {};
-      if (roomId) {
-        client.to(roomId).emit('userTyping', { roomId, userId: user.id });
-      }
+      const dto = await validateWsBody(JoinRoomDto, body);
+      const room = await this.chat.getRoomForParty(user.id, dto.roomId);
+      client.to(room.id).emit('userTyping', { roomId: room.id, userId: user.id });
     });
   }
 
@@ -264,10 +263,9 @@ export class ChatGateway implements OnGatewayInit {
   ): Promise<void> {
     await respond(ack, async () => {
       const user = await this.requireLiveUser(client);
-      const { roomId } = (body as { roomId?: string }) || {};
-      if (roomId) {
-        client.to(roomId).emit('userStopTyping', { roomId, userId: user.id });
-      }
+      const dto = await validateWsBody(JoinRoomDto, body);
+      const room = await this.chat.getRoomForParty(user.id, dto.roomId);
+      client.to(room.id).emit('userStopTyping', { roomId: room.id, userId: user.id });
     });
   }
 
@@ -279,9 +277,10 @@ export class ChatGateway implements OnGatewayInit {
   ): Promise<void> {
     await respond(ack, async () => {
       const user = await this.requireLiveUser(client);
-      const { roomId } = (body as { roomId: string }) || {};
-      const room = await this.chat.getRoomForParty(user.id, roomId);
+      const dto = await validateWsBody(JoinRoomDto, body);
+      const room = await this.chat.getRoomForParty(user.id, dto.roomId);
       const now = this.clock.now();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument -- synthesized newest message marker
       await this.chat.markReadUpTo(user.id, room.id, { createdAt: now } as any);
       this.server.to(room.id).emit('roomRead', { roomId: room.id, userId: user.id, readAt: now });
       return { readAt: now };

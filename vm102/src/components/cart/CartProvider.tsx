@@ -57,12 +57,8 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const addToCart = useCallback(async (item: Omit<CartItem, "qty" | "id"> & { qty?: number }) => {
     if (isLoading || !isAuthenticated || !user) return;
-    try {
-      await cartApi.addItem(item.productId, item.variantId, item.qty || 1);
-      await fetchCart();
-    } catch {
-      // Ignored
-    }
+    await cartApi.addItem(item.productId, item.variantId, item.qty || 1);
+    await fetchCart();
   }, [isLoading, isAuthenticated, user, fetchCart]);
 
   const removeFromCart = useCallback(async (id: string) => {

@@ -39,7 +39,7 @@ export default function DisputePage({ params }: { params: Promise<{ id: string }
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setImages(Array.from(e.target.files));
+      setImages(Array.from(e.target.files).slice(0, 10));
     }
   };
 
@@ -58,9 +58,9 @@ export default function DisputePage({ params }: { params: Promise<{ id: string }
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6">
             <h3 className="font-bold text-red-800 mb-1"><i className="fa-solid fa-circle-exclamation mr-1"></i> เงื่อนไขการเปิดข้อพิพาท</h3>
             <ul className="text-sm text-red-700 space-y-1 ml-5 list-disc">
-              <li>ต้องดำเนินการภายใน 7 วันหลังกดรับสินค้า</li>
+              <li>เปิดได้ภายใน 7 วันหลังกดรับของ หรือ 15 วันหลังร้านส่ง</li>
               <li><b>บังคับแนบรูปภาพหลักฐาน</b> (เช่น รูปกล่องพัสดุ สินค้าที่ชำรุด หรือสลิปโอนเงิน)</li>
-              <li>แอดมินชุมชนจะเป็นผู้ตัดสินในขั้นแรก หากไม่พอใจสามารถอุทธรณ์ไปที่ Super Admin ได้</li>
+              <li>แอดมินชุมชนจะเป็นผู้ตัดสินข้อพิพาทตามหลักฐานของทั้งสองฝ่าย โดยคำตัดสินถือเป็นที่สิ้นสุด (ไม่มีสิทธิ์ยื่นอุทธรณ์)</li>
             </ul>
           </div>
 
@@ -78,7 +78,7 @@ export default function DisputePage({ params }: { params: Promise<{ id: string }
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">รูปภาพหลักฐาน * <span className="font-normal text-gray-400">(สูงสุด 5 รูป)</span></label>
+              <label className="block text-sm font-bold text-gray-700 mb-2">รูปภาพหลักฐาน * <span className="font-normal text-gray-400">(สูงสุด 10 รูป)</span></label>
               <div className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:bg-gray-50 transition cursor-pointer relative">
                 <input 
                   type="file" 

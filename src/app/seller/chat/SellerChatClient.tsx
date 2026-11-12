@@ -66,6 +66,8 @@ export default function SellerChatClient() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const quickEmojis = ["😊", "🙏", "👍", "❤️", "📦", "✨", "👋", "🎉", "🔥", "💯"];
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Realtime typing & presence
@@ -122,7 +124,9 @@ export default function SellerChatClient() {
           });
           setContacts(fetchedContacts);
           if (fetchedContacts.length > 0 && !activeContactId) {
-            setActiveContactId(fetchedContacts[0].id);
+            if (typeof window !== "undefined" && window.innerWidth >= 768) {
+              setActiveContactId(fetchedContacts[0].id);
+            }
           }
         }
       });
@@ -441,7 +445,7 @@ export default function SellerChatClient() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       {/* Seller Header */}
-      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm border-b border-gray-100 flex-shrink-0">
+      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 shadow-sm border-b border-gray-100 flex-shrink-0 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link href="/seller" className="flex items-center gap-3 group transition">
             <div className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 transition text-gray-500 mr-2 md:hidden">
@@ -470,8 +474,33 @@ export default function SellerChatClient() {
       {/* Chat Container */}
       <main className="flex-grow flex overflow-hidden max-w-7xl mx-auto w-full bg-white shadow-sm">
         {/* Left Sidebar - Contact List */}
-        <div className="w-full md:w-80 border-r border-gray-100 flex flex-col hidden md:flex bg-white">
-          <div className="p-4 border-b border-gray-100 bg-gray-50/50">
+        <div className={`w-full md:w-80 border-r border-gray-100 flex-col bg-white flex-shrink-0 ${
+          activeContactId ? "hidden md:flex" : "flex"
+        }`}>
+          {/* Mobile Header for Contact List */}
+          <div className="md:hidden px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-white flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <Link
+                href="/seller"
+                className="w-8 h-8 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-100 transition"
+                aria-label="กลับไปแดชบอร์ด"
+              >
+                <i className="fa-solid fa-arrow-left text-sm"></i>
+              </Link>
+              <div>
+                <h1 className="font-bold text-gray-800 text-base leading-none">ข้อความจากลูกค้า</h1>
+                <p className="text-[10px] text-gray-400 mt-0.5">ศูนย์ข้อความร้านค้า</p>
+              </div>
+            </div>
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+              wsStatus === "CONNECTED" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${wsStatus === "CONNECTED" ? "bg-green-500" : "bg-red-500"}`}></span>
+              <span>{wsStatus === "CONNECTED" ? "ออนไลน์" : "ออฟไลน์"}</span>
+            </div>
+          </div>
+
+          <div className="p-3 md:p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
             <div className="relative">
               <input 
                 type="text" 
@@ -526,7 +555,9 @@ export default function SellerChatClient() {
         </div>
 
         {/* Right - Chat Area */}
-        <div className="flex-grow flex flex-col h-full bg-[#f8faf9] relative">
+        <div className={`flex-grow flex-col h-full bg-[#f8faf9] relative ${
+          activeContactId ? "flex" : "hidden md:flex"
+        }`}>
           {!activeContact ? (
             <div className="flex-grow flex flex-col items-center justify-center p-8 text-center text-gray-400">
               <div className="w-16 h-16 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center text-3xl text-[#16A085] mb-4">
@@ -540,37 +571,51 @@ export default function SellerChatClient() {
           ) : (
             <div className="relative flex flex-col h-full z-10">
               {/* Chat Header */}
-              <div className="bg-white p-3 md:p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-                <div className="flex items-center gap-3">
-                  <button className="md:hidden text-gray-400 hover:text-[#16A085] p-2 -ml-2"><i className="fa-solid fa-chevron-left"></i></button>
-                  <div className="relative">
+              <div className="bg-white p-2.5 sm:p-3 md:p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0 gap-2">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (contacts.length > 0) {
+                        setActiveContactId("");
+                      } else {
+                        router.back();
+                      }
+                    }}
+                    className="md:hidden text-gray-600 hover:text-[#16A085] hover:bg-gray-100 p-1.5 -ml-1 rounded-xl flex items-center justify-center transition cursor-pointer flex-shrink-0"
+                    title="กลับไปรายชื่อแชท"
+                    aria-label="กลับไปรายชื่อแชท"
+                  >
+                    <i className="fa-solid fa-chevron-left text-base"></i>
+                  </button>
+                  <div className="relative flex-shrink-0">
                     <img 
                       src={activeContact.avatar} 
                       alt={activeContact.name} 
-                      className="w-10 h-10 rounded-full shadow-sm border border-gray-200 object-cover" 
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-full shadow-2xs border border-gray-200 object-cover" 
                       onError={(e) => {
                         (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(activeContact.name)}&background=16A085&color=fff`;
                       }}
                     />
-                    <span className={`absolute bottom-0 right-0 w-3 h-3 border-2 border-white rounded-full ${activeContact.isOnline ? "bg-green-500" : "bg-gray-300"}`}></span>
+                    <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3 sm:h-3 border-2 border-white rounded-full ${activeContact.isOnline ? "bg-green-500" : "bg-gray-300"}`}></span>
                   </div>
-                  <div>
-                    <h2 className="font-bold text-gray-800 text-sm md:text-base">{activeContact.name}</h2>
-                    <p className="text-[10px] md:text-xs text-[#16A085] font-medium flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${activeContact.isOnline ? "bg-[#16A085] animate-pulse" : "bg-gray-300"}`}></span> {activeContact.isOnline ? "ออนไลน์" : "ออฟไลน์"}</p>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="font-bold text-gray-800 text-xs sm:text-sm md:text-base leading-tight truncate">{activeContact.name}</h2>
+                    <p className="text-[10px] md:text-xs text-[#16A085] font-medium flex items-center gap-1 mt-0.5"><span className={`w-1.5 h-1.5 rounded-full ${activeContact.isOnline ? "bg-[#16A085] animate-pulse" : "bg-gray-300"}`}></span> {activeContact.isOnline ? "ออนไลน์" : "ออฟไลน์"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                   <button 
                     onClick={() => setIsSearching(!isSearching)} 
                     title="ค้นหาข้อความ" 
-                    className={`text-gray-500 hover:text-[#16A085] hover:bg-green-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2.5 py-1.5 rounded-full ${isSearching ? "text-[#16A085] border-[#16A085] bg-green-50" : ""}`}
+                    className={`text-gray-500 hover:text-[#16A085] hover:bg-green-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs p-1.5 sm:px-2.5 sm:py-1.5 rounded-full ${isSearching ? "text-[#16A085] border-[#16A085] bg-green-50" : ""}`}
                   >
-                    <i className="fa-solid fa-magnifying-glass"></i>
+                    <i className="fa-solid fa-magnifying-glass text-xs"></i>
                   </button>
                   <button 
                     onClick={handleClearRoom} 
                     title="ล้างประวัติการสนทนาสำหรับฉัน" 
-                    className="text-gray-500 hover:text-red-500 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2.5 py-1.5 rounded-full hidden sm:inline-flex"
+                    className="text-gray-500 hover:text-red-500 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2.5 py-1.5 rounded-full hidden sm:inline-flex"
                   >
                     <i className="fa-regular fa-trash-can"></i>
                   </button>
@@ -578,15 +623,23 @@ export default function SellerChatClient() {
                     <button 
                       onClick={handleToggleBlock} 
                       title={isBlocked ? "ปลดบล็อกผู้ใช้นี้" : "บล็อกผู้ใช้นี้"} 
-                      className={`transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2.5 py-1.5 rounded-full hidden sm:inline-flex ${isBlocked ? "text-red-600 bg-red-50 border-red-300" : "text-gray-500 hover:text-red-600 hover:bg-red-50"}`}
+                      className={`transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2.5 py-1.5 rounded-full hidden sm:inline-flex ${isBlocked ? "text-red-600 bg-red-50 border-red-300" : "text-gray-500 hover:text-red-600 hover:bg-red-50"}`}
                     >
                       <i className="fa-solid fa-ban"></i>
                     </button>
                   )}
-                  <button onClick={() => setIsSettingsModalOpen(true)} className="text-gray-500 hover:text-[#16A085] hover:bg-[#D4F1BB]/30 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2 sm:px-3 py-1.5 rounded-full"><i className="fa-solid fa-gear sm:mr-1"></i> <span className="hidden sm:inline">ตั้งค่า</span></button>
-                  <button onClick={() => setIsReportModalOpen(true)} className="text-gray-500 hover:text-red-600 hover:bg-red-50 transition text-xs font-bold border border-gray-200 bg-white shadow-sm px-2 sm:px-3 py-1.5 rounded-full"><i className="fa-solid fa-flag sm:mr-1"></i> <span className="hidden sm:inline">รายงาน</span></button>
+                  <button onClick={() => setIsSettingsModalOpen(true)} className="text-gray-500 hover:text-[#16A085] hover:bg-green-50 transition text-xs font-bold border border-gray-200 bg-white shadow-2xs px-2 sm:px-3 py-1.5 rounded-full hidden sm:inline-flex"><i className="fa-solid fa-gear sm:mr-1"></i> <span className="hidden sm:inline">ตั้งค่า</span></button>
+                  <Link
+                    href="/seller"
+                    className="md:hidden text-gray-500 hover:text-[#16A085] hover:bg-gray-50 p-1.5 rounded-full transition flex items-center justify-center border border-gray-200 shadow-2xs"
+                    title="กลับไปแดชบอร์ด"
+                    aria-label="กลับไปแดชบอร์ด"
+                  >
+                    <i className="fa-solid fa-house text-xs"></i>
+                  </Link>
                 </div>
               </div>
+
 
               {/* In-chat Search Input Bar */}
               {isSearching && (
@@ -724,7 +777,22 @@ export default function SellerChatClient() {
                     )}
                   </div>
                 )}
-                <form onSubmit={handleSendMessage} className={`p-3 md:p-4 ${selectedImage ? 'pt-2' : ''}`}>
+                {showEmojiPicker && (
+                  <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2 overflow-x-auto hide-scrollbar">
+                    <span className="text-[11px] text-gray-400 font-bold whitespace-nowrap">อีโมจิ:</span>
+                    {quickEmojis.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setInputText((prev) => prev + emoji)}
+                        className="text-lg hover:scale-125 transition-transform p-1 cursor-pointer flex-shrink-0"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <form onSubmit={(e) => { setShowEmojiPicker(false); handleSendMessage(e); }} className={`p-3 md:p-4 ${selectedImage ? 'pt-2' : ''}`}>
                   <input 
                     type="file" 
                     accept="image/jpeg,image/png,image/webp" 
@@ -750,7 +818,17 @@ export default function SellerChatClient() {
                         placeholder={wsStatus === "CONNECTED" && activeContactId ? "พิมพ์ข้อความถึงลูกค้า..." : "รอการเชื่อมต่อหรือเลือกลูกค้า..."} 
                         className="w-full bg-gray-50 border border-gray-200 rounded-full pl-5 pr-10 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#16A085]/20 focus:border-[#16A085] transition disabled:opacity-50 shadow-inner" 
                       />
-                      <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#16A085] p-1 transition"><i className="fa-regular fa-face-smile text-lg"></i></button>
+                      <button
+                        type="button"
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 transition cursor-pointer ${
+                          showEmojiPicker ? "text-[#16A085]" : "text-gray-400 hover:text-[#16A085]"
+                        }`}
+                        title="แทรกอีโมจิ"
+                        aria-label="แทรกอีโมจิ"
+                      >
+                        <i className="fa-regular fa-face-smile text-lg"></i>
+                      </button>
                     </div>
                     <button 
                       type="submit" 

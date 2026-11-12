@@ -308,7 +308,7 @@ export default function CouponsClient() {
   return (
     <div className="min-h-screen bg-slate-50/60 flex flex-col">
       <Header />
-      <div className="flex-grow pb-12 sm:pb-16">
+      <div className="flex-grow pb-24 sm:pb-16">
         {/* ======================================================== */}
         {/* HERO BANNER SECTION                                      */}
         {/* ======================================================== */}

@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { bannerApi, BannerDto, CreateBannerDto, UpdateBannerDto } from "@/lib/api";
+import { useState, useEffect, useCallback } from "react";
+import { bannerApi, BannerDto, CreateBannerDto } from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
-import Image from "next/image";
 
 export default function BannersTab() {
   const [banners, setBanners] = useState<BannerDto[]>([]);
@@ -25,7 +24,7 @@ export default function BannersTab() {
     isActive: true,
   });
 
-  const loadBanners = async () => {
+  const loadBanners = useCallback(async () => {
     setIsLoading(true);
     try {
       const { items } = await bannerApi.getAllBanners();
@@ -36,11 +35,11 @@ export default function BannersTab() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     loadBanners();
-  }, []);
+  }, [loadBanners]);
 
   const handleOpenModal = (banner?: BannerDto) => {
     if (banner) {
@@ -75,22 +74,12 @@ export default function BannersTab() {
 
     setIsUploadingImage(true);
     try {
-      const uploadData = new FormData();
-      uploadData.append("file", file);
-      
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: uploadData,
-      });
-      
-      if (!res.ok) throw new Error("Upload failed");
-      
-      const data = await res.json();
+      const data = await bannerApi.uploadImage(file);
       setFormData(prev => ({ ...prev, imageUrl: data.url }));
       showToast("อัพโหลดรูปภาพสำเร็จ", "success");
     } catch (error) {
       console.error(error);
-      showToast("ไม่สามารถอัพโหลดรูปภาพได้", "error");
+      showToast("ไม่สามารถอัพโหลดรูปภาพได้ (รองรับเฉพาะไฟล์ JPG หรือ PNG)", "error");
     } finally {
       setIsUploadingImage(false);
     }
@@ -129,7 +118,7 @@ export default function BannersTab() {
 
   const handleDelete = async (id: string) => {
     if (!confirm("คุณแน่ใจหรือไม่ที่จะลบแบนเนอร์นี้?")) return;
-    
+
     try {
       await bannerApi.deleteBanner(id);
       showToast("ลบแบนเนอร์สำเร็จ", "success");
@@ -188,7 +177,7 @@ export default function BannersTab() {
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center text-gray-400">No Image</div>
                 )}
-                
+
                 <div className="absolute top-3 right-3 flex gap-2">
                   <button
                     onClick={() => handleToggleActive(banner)}
@@ -198,21 +187,21 @@ export default function BannersTab() {
                     <i className={`fa-solid ${banner.isActive ? 'fa-eye' : 'fa-eye-slash'}`}></i>
                   </button>
                 </div>
-                
+
                 <div className="absolute bottom-3 left-3">
                   <span className="bg-black/70 text-white text-xs px-2 py-1 rounded font-mono">
                     ลำดับ: {banner.displayOrder}
                   </span>
                 </div>
               </div>
-              
+
               <div className="p-5">
                 <div className="mb-4">
                   {banner.tag && <span className="inline-block bg-[#D4F1BB] text-[#16A085] text-[10px] font-bold px-2 py-1 rounded mb-2">{banner.tag}</span>}
                   <h3 className="font-bold text-gray-800 line-clamp-1">{banner.title || <span className="text-gray-400 italic">ไม่มีหัวข้อ (ใช้รูปอย่างเดียว)</span>}</h3>
                   <p className="text-sm text-gray-500 line-clamp-1">{banner.subtitle || "-"}</p>
                 </div>
-                
+
                 <div className="flex gap-2">
                   <button
                     onClick={() => handleOpenModal(banner)}
@@ -245,26 +234,25 @@ export default function BannersTab() {
                 <i className="fa-solid fa-xmark"></i>
               </button>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6">
               <div className="space-y-6">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">
                     รูปภาพแบนเนอร์ <span className="text-red-500">*</span>
                   </label>
-                  
+
                   {formData.imageUrl ? (
                     <div className="relative w-full aspect-[1920/750] bg-gray-100 rounded-xl overflow-hidden border border-gray-200 group">
-                      <Image 
-                        src={formData.imageUrl} 
-                        alt="Preview" 
-                        fill 
-                        className="object-cover"
+                      <img
+                        src={formData.imageUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
                       />
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <label className="cursor-pointer bg-white text-gray-800 px-4 py-2 rounded-lg font-medium text-sm shadow-sm hover:bg-gray-50 transition">
                           <i className="fa-solid fa-camera mr-2"></i>เปลี่ยนรูปภาพ
-                          <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploadingImage} />
+                          <input type="file" className="hidden" accept="image/jpeg,image/png" onChange={handleImageUpload} disabled={isUploadingImage} />
                         </label>
                       </div>
                     </div>
@@ -279,9 +267,9 @@ export default function BannersTab() {
                         <p className="mb-1 text-sm text-gray-500 font-medium">
                           <span className="font-bold text-[#16A085]">คลิกเพื่ออัพโหลด</span> หรือลากไฟล์มาวาง
                         </p>
-                        <p className="text-xs text-gray-400">อัตราส่วนที่แนะนำ 1920x750 พิกเซล</p>
+                        <p className="text-xs text-gray-400">อัตราส่วนที่แนะนำ 1920x750 พิกเซล (JPG หรือ PNG)</p>
                       </div>
-                      <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploadingImage} />
+                      <input type="file" className="hidden" accept="image/jpeg,image/png" onChange={handleImageUpload} disabled={isUploadingImage} />
                     </label>
                   )}
                 </div>
@@ -292,7 +280,7 @@ export default function BannersTab() {
                     <input
                       type="text"
                       value={formData.title}
-                      onChange={(e) => setFormData({...formData, title: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                       placeholder="ไม่ต้องใส่หากรูปภาพมีข้อความอยู่แล้ว"
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                     />
@@ -302,7 +290,7 @@ export default function BannersTab() {
                     <input
                       type="text"
                       value={formData.tag}
-                      onChange={(e) => setFormData({...formData, tag: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, tag: e.target.value })}
                       placeholder="เช่น โปรโมชัน"
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                     />
@@ -314,7 +302,7 @@ export default function BannersTab() {
                   <input
                     type="text"
                     value={formData.subtitle}
-                    onChange={(e) => setFormData({...formData, subtitle: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                   />
                 </div>
@@ -325,7 +313,7 @@ export default function BannersTab() {
                     <input
                       type="text"
                       value={formData.linkUrl}
-                      onChange={(e) => setFormData({...formData, linkUrl: e.target.value})}
+                      onChange={(e) => setFormData({ ...formData, linkUrl: e.target.value })}
                       placeholder="เช่น /products"
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                     />
@@ -335,7 +323,7 @@ export default function BannersTab() {
                     <input
                       type="number"
                       value={formData.displayOrder}
-                      onChange={(e) => setFormData({...formData, displayOrder: parseInt(e.target.value) || 0})}
+                      onChange={(e) => setFormData({ ...formData, displayOrder: parseInt(e.target.value) || 0 })}
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#16A085] outline-none"
                     />
                   </div>
@@ -346,7 +334,7 @@ export default function BannersTab() {
                     type="checkbox"
                     id="isActive"
                     checked={formData.isActive}
-                    onChange={(e) => setFormData({...formData, isActive: e.target.checked})}
+                    onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
                     className="w-5 h-5 rounded text-[#16A085] focus:ring-[#16A085]"
                   />
                   <label htmlFor="isActive" className="font-bold text-gray-800 cursor-pointer">

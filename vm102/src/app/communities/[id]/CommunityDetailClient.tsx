@@ -73,43 +73,43 @@ export default function CommunityDetailClient({ communityId }: { communityId: st
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
-      <main className="flex-grow w-full pb-12">
+      <main className="flex-grow w-full pb-24 md:pb-12">
 
         {/* Cover Header */}
-        <div className="w-full h-[300px] md:h-[400px] relative bg-gradient-to-br from-[#16A085] to-[#2ECC71] overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-6 md:p-12">
+        <div className="w-full h-[220px] sm:h-[300px] md:h-[400px] relative bg-gradient-to-br from-[#16A085] to-[#2ECC71] overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent flex flex-col justify-end p-4 sm:p-6 md:p-12">
             <div className="max-w-7xl mx-auto w-full">
-              <span className="bg-[#16A085] text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-md mb-4 inline-block">ชุมชน VRU</span>
-              <h1 className="text-4xl md:text-5xl font-black text-white mb-2">{community.name}</h1>
+              <span className="bg-[#16A085] text-white text-[10px] sm:text-xs font-bold px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full shadow-md mb-2 sm:mb-4 inline-block">ชุมชน VRU</span>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black text-white mb-1.5 sm:mb-2">{community.name}</h1>
               {community.description && (
-                <p className="text-white/80 max-w-2xl line-clamp-2">{community.description}</p>
+                <p className="text-white/80 text-xs sm:text-sm max-w-2xl line-clamp-2">{community.description}</p>
               )}
             </div>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 -mt-8 relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 -mt-6 sm:-mt-8 relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
 
           {/* Left Panel */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-              <h3 className="font-bold text-gray-800 text-lg mb-4">เกี่ยวกับชุมชน</h3>
-              <p className="text-sm text-gray-600 leading-relaxed mb-6">
+          <div className="lg:col-span-1 space-y-4 sm:space-y-6">
+            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-6 md:p-8">
+              <h3 className="font-bold text-gray-800 text-base sm:text-lg mb-3 sm:mb-4">เกี่ยวกับชุมชน</h3>
+              <p className="text-xs sm:text-sm text-gray-600 leading-relaxed mb-4 sm:mb-6">
                 {community.description || "ชุมชนในเครือข่ายมหาวิทยาลัยราชภัฏวไลยอลงกรณ์"}
               </p>
 
-              <div className="grid grid-cols-2 gap-3 text-center mb-6">
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xl font-black text-[#16A085]">{shopCount}</p>
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3 text-center mb-4 sm:mb-6">
+                <div className="bg-gray-50 rounded-xl p-2.5 sm:p-3 border border-gray-100 shadow-2xs">
+                  <p className="text-lg sm:text-xl font-black text-[#16A085]">{shopCount}</p>
                   <p className="text-[10px] text-gray-500 font-bold">ร้านค้า</p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                  <p className="text-xl font-black text-[#16A085]">{products.length}+</p>
+                <div className="bg-gray-50 rounded-xl p-2.5 sm:p-3 border border-gray-100 shadow-2xs">
+                  <p className="text-lg sm:text-xl font-black text-[#16A085]">{products.length}+</p>
                   <p className="text-[10px] text-gray-500 font-bold">สินค้า</p>
                 </div>
               </div>
 
-              <Link href={`/shops?communityId=${communityId}`} className="w-full block text-center bg-[#D4F1BB]/30 text-[#16A085] hover:bg-[#D4F1BB]/60 font-bold py-3 rounded-xl transition text-sm">
+              <Link href={`/shops?communityId=${communityId}`} className="w-full block text-center bg-[#D4F1BB]/30 text-[#16A085] hover:bg-[#D4F1BB]/60 font-bold py-2.5 sm:py-3 rounded-xl transition text-xs sm:text-sm active:scale-95 shadow-2xs">
                 ดูร้านค้าทั้งหมดในชุมชนนี้
               </Link>
             </div>
@@ -117,9 +117,9 @@ export default function CommunityDetailClient({ communityId }: { communityId: st
 
           {/* Right Panel (Products) */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-800">สินค้าแนะนำจากชุมชน</h2>
+            <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-6 md:p-8">
+              <div className="flex items-center justify-between mb-4 sm:mb-6">
+                <h2 className="text-base sm:text-xl font-bold text-gray-800">สินค้าแนะนำจากชุมชน</h2>
               </div>
 
               {products.length === 0 ? (
@@ -128,7 +128,7 @@ export default function CommunityDetailClient({ communityId }: { communityId: st
                   <p className="font-bold">ยังไม่มีสินค้าในชุมชนนี้</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 md:gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 md:gap-6">
                   {products.map((product) => (
                     <ProductCard key={product.id} product={mapPublicProductDto(product)} />
                   ))}

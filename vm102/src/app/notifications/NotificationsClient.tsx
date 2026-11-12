@@ -71,23 +71,29 @@ export default function NotificationsClient() {
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Header />
-      <main className="flex-grow w-full max-w-3xl mx-auto px-4 py-6">
+      <main className="flex-grow w-full max-w-3xl mx-auto px-3 sm:px-4 pt-3 sm:pt-6 pb-24 md:pb-12">
         <Breadcrumb items={[{ label: "การแจ้งเตือน" }]} />
 
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-gray-800">
-            <i className="fa-regular fa-bell text-vru-orange mr-2"></i>
-            การแจ้งเตือน
+        <div className="flex items-center justify-between gap-2 mb-4 sm:mb-6">
+          <div className="flex items-center gap-2 min-w-0">
+            <i className="fa-regular fa-bell text-vru-orange text-lg sm:text-2xl flex-shrink-0"></i>
+            <h2 className="text-lg sm:text-2xl font-bold text-gray-800 whitespace-nowrap">
+              การแจ้งเตือน
+            </h2>
             {unreadCount > 0 && (
-              <span className="ml-2 bg-vru-orange text-white text-sm font-bold px-2.5 py-0.5 rounded-full">{unreadCount}</span>
+              <span className="bg-vru-orange text-white text-xs sm:text-sm font-bold px-2 sm:px-2.5 py-0.5 rounded-full flex-shrink-0">
+                {unreadCount}
+              </span>
             )}
-          </h2>
+          </div>
           {unreadCount > 0 && (
             <button
+              type="button"
               onClick={handleMarkAllRead}
-              className="text-sm text-[#16A085] font-bold hover:underline"
+              className="text-xs sm:text-sm text-[#16A085] hover:text-[#117A65] font-bold hover:underline flex-shrink-0 whitespace-nowrap active:scale-95 cursor-pointer py-1"
             >
-              ทำเครื่องหมายว่าอ่านทั้งหมด
+              <i className="fa-solid fa-check-double mr-1 sm:hidden"></i>
+              <span className="hidden sm:inline">ทำเครื่องหมายว่า</span>อ่านทั้งหมด
             </button>
           )}
         </div>
@@ -111,46 +117,48 @@ export default function NotificationsClient() {
                 <div
                   key={notif.id}
                   onClick={() => !notif.readAt && handleMarkRead(notif.id)}
-                  className={`bg-white rounded-xl shadow-sm border p-4 flex gap-4 transition hover:shadow-md cursor-pointer ${notif.readAt ? "border-gray-100" : "border-vru-orange bg-orange-50/30"}`}
+                  className={`bg-white rounded-2xl shadow-xs border p-3.5 sm:p-4 flex gap-3 sm:gap-4 transition hover:shadow-md cursor-pointer ${notif.readAt ? "border-gray-100" : "border-vru-orange/40 bg-orange-50/20"}`}
                 >
-                  <div className={`w-10 h-10 rounded-full ${style.bg} flex items-center justify-center flex-shrink-0`}>
+                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full ${style.bg} flex items-center justify-center flex-shrink-0 text-sm sm:text-base`}>
                     <i className={`${style.icon} ${style.color}`}></i>
                   </div>
                   <div className="flex-grow min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-bold text-gray-800 text-sm">{style.label}</h4>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <h4 className="font-bold text-gray-800 text-xs sm:text-sm">{style.label}</h4>
                       {!notif.readAt && <span className="w-2 h-2 bg-vru-orange rounded-full flex-shrink-0"></span>}
                     </div>
-                    <p className="text-sm text-gray-500 line-clamp-2">{notif.message}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 line-clamp-2 leading-relaxed">{notif.message}</p>
                     {notif.type === "COUPON_EXPIRING_WARNING" && (
-                      <div className="mt-2">
+                      <div className="mt-2.5">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             if (!notif.readAt) handleMarkRead(notif.id);
-                            router.push("/shops");
+                            router.push("/coupons");
                           }}
-                          className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1 rounded-full transition flex items-center gap-1.5 w-fit"
+                          className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-full transition flex items-center gap-1.5 w-fit active:scale-95 cursor-pointer shadow-2xs"
                         >
                           <i className="fa-solid fa-basket-shopping text-amber-600"></i> ไปเลือกซื้อสินค้าเลย
                         </button>
                       </div>
                     )}
                     {notif.type === "CHAT_MESSAGE" && (
-                      <div className="mt-2">
+                      <div className="mt-2.5">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             if (!notif.readAt) handleMarkRead(notif.id);
                             router.push(user?.shopId ? "/seller/chat" : "/chat");
                           }}
-                          className="text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-full transition flex items-center gap-1.5 w-fit"
+                          className="text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-full transition flex items-center gap-1.5 w-fit active:scale-95 cursor-pointer shadow-2xs"
                         >
                           <i className="fa-regular fa-message text-indigo-600"></i> ไปที่ห้องแชท
                         </button>
                       </div>
                     )}
-                    <span className="text-xs text-gray-400 mt-1.5 block">{formatRelativeTime(notif.createdAt)}</span>
+                    <span className="text-[11px] sm:text-xs text-gray-400 mt-2 block">{formatRelativeTime(notif.createdAt)}</span>
                   </div>
                 </div>
               );

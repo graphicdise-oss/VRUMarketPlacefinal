@@ -128,7 +128,7 @@ export default function AddressesClient() {
       try {
         await addressApi.delete(id);
         setAddresses(addresses.filter((a) => a.id !== id));
-      } catch (err) {
+      } catch {
         alert("ลบไม่สำเร็จ กรุณาลองใหม่");
       }
     }
@@ -138,7 +138,7 @@ export default function AddressesClient() {
     try {
       await addressApi.setDefault(id);
       setAddresses(addresses.map((a) => ({ ...a, isDefault: a.id === id })));
-    } catch (err) {
+    } catch {
       alert("ไม่สามารถตั้งเป็นค่าเริ่มต้นได้");
     }
   };
@@ -240,7 +240,7 @@ export default function AddressesClient() {
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       <Header />
-      <main className={`flex-grow mx-auto w-full px-4 pt-4 pb-12 flex flex-col md:flex-row gap-6 ${showSidebar ? 'max-w-7xl' : 'max-w-4xl'}`}>
+      <main className={`flex-grow mx-auto w-full px-3 sm:px-4 pt-3 sm:pt-4 pb-24 md:pb-12 flex flex-col md:flex-row gap-4 sm:gap-6 ${showSidebar ? 'max-w-7xl' : 'max-w-4xl'}`}>
         {/* Sidebar */}
         {showSidebar && (
           <ProfileSidebar 
@@ -254,27 +254,27 @@ export default function AddressesClient() {
             { label: "โปรไฟล์", href: "/profile" },
             { label: "ที่อยู่จัดส่ง" }
           ]} />
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 mt-6">
-          <h2 className="text-3xl font-black text-gray-800 flex items-center gap-3">
-            <div className="w-12 h-12 bg-[#16A085] rounded-2xl flex items-center justify-center text-white shadow-sm">
-              <i className="fa-solid fa-map-location-dot text-xl"></i>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-6 sm:mb-8 mt-4 sm:mt-6">
+          <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-gray-800 flex items-center gap-2.5 sm:gap-3">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#16A085] rounded-xl sm:rounded-2xl flex items-center justify-center text-white shadow-xs flex-shrink-0">
+              <i className="fa-solid fa-map-location-dot text-lg sm:text-xl"></i>
             </div>
             ที่อยู่จัดส่งของคุณ
           </h2>
           {!showForm && !isLoading && addresses.length < 10 && (
-            <button onClick={() => setShowForm(true)} className="btn-minimal bg-white border-2 border-gray-100 text-[#16A085] hover:border-[#16A085] font-bold px-6 py-3 rounded-full transition-all shadow-sm hover:shadow flex items-center justify-center gap-2">
+            <button onClick={() => setShowForm(true)} className="btn-minimal bg-white border-2 border-gray-100 text-[#16A085] hover:border-[#16A085] font-bold px-4 sm:px-6 py-2.5 sm:py-3 rounded-full text-xs sm:text-sm transition-all shadow-xs hover:shadow flex items-center justify-center gap-2 self-start sm:self-auto active:scale-95 cursor-pointer">
               <i className="fa-solid fa-plus"></i> เพิ่มที่อยู่ใหม่
             </button>
           )}
         </div>
 
         {/* Info */}
-        <div className="bg-[#D4F1BB]/30 border border-[#16A085]/30 rounded-2xl p-4 mb-8 flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-white text-[#16A085] flex items-center justify-center flex-shrink-0 shadow-sm mt-0.5">
-            <i className="fa-solid fa-circle-info text-sm"></i>
+        <div className="bg-[#D4F1BB]/30 border border-[#16A085]/30 rounded-xl sm:rounded-2xl p-3 sm:p-4 mb-6 sm:mb-8 flex items-start gap-2.5 sm:gap-3">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white text-[#16A085] flex items-center justify-center flex-shrink-0 shadow-2xs mt-0.5">
+            <i className="fa-solid fa-circle-info text-xs sm:text-sm"></i>
           </div>
           <div>
-            <p className="text-sm text-gray-700 font-medium leading-relaxed">
+            <p className="text-xs sm:text-sm text-gray-700 font-medium leading-relaxed">
               <b className="text-[#16A085]">ข้อมูลสำคัญ:</b> ชื่อผู้รับและเบอร์โทรศัพท์จะผูกติดกับที่อยู่แต่ละรายการ (เพิ่มได้สูงสุด 10 รายการ)
             </p>
           </div>
@@ -282,9 +282,9 @@ export default function AddressesClient() {
 
         {/* Form */}
         {showForm && (
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8 mb-8 relative overflow-hidden">
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-6 md:p-8 mb-6 sm:mb-8 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-1.5 bg-[#16A085]"></div>
-            <h3 className="font-bold text-gray-800 mb-6 text-xl flex items-center gap-2">
+            <h3 className="font-bold text-gray-800 mb-4 sm:mb-6 text-lg sm:text-xl flex items-center gap-2">
               <i className="fa-solid fa-pen-to-square text-gray-400"></i> {editingId ? "แก้ไขข้อมูลที่อยู่" : "กรอกข้อมูลที่อยู่ใหม่"}
             </h3>
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -365,9 +365,9 @@ export default function AddressesClient() {
                   <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} className="sr-only" /> 
                   <span className="font-bold text-gray-700 group-hover:text-[#16A085] transition-colors">ตั้งเป็นที่อยู่จัดส่งเริ่มต้น</span>
                 </label>
-                <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
-                  <button type="button" onClick={resetForm} disabled={isSubmitting} className="flex-1 sm:flex-none px-8 py-3.5 bg-white border-2 border-gray-200 rounded-full text-sm font-bold text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-all shadow-sm">ยกเลิก</button>
-                  <button type="submit" disabled={isSubmitting} className="flex-1 sm:flex-none btn-minimal px-8 py-3.5 text-white rounded-full text-sm font-bold transition-all shadow-md disabled:opacity-50">
+                <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 w-full md:w-auto">
+                  <button type="button" onClick={resetForm} disabled={isSubmitting} className="flex-1 sm:flex-none px-6 sm:px-8 py-2.5 sm:py-3.5 bg-white border-2 border-gray-200 rounded-full text-xs sm:text-sm font-bold text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-all shadow-xs cursor-pointer active:scale-95">ยกเลิก</button>
+                  <button type="submit" disabled={isSubmitting} className="flex-1 sm:flex-none btn-minimal px-6 sm:px-8 py-2.5 sm:py-3.5 text-white rounded-full text-xs sm:text-sm font-bold transition-all shadow-md disabled:opacity-50 cursor-pointer active:scale-95">
                     <i className="fa-solid fa-floppy-disk mr-2"></i> {isSubmitting ? "กำลังบันทึก..." : "บันทึกข้อมูลที่อยู่"}
                   </button>
                 </div>
@@ -378,50 +378,50 @@ export default function AddressesClient() {
 
         {/* Address List */}
         {!showForm && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
             {isLoading ? (
                <div className="col-span-1 md:col-span-2 text-center py-16">
                  <i className="fa-solid fa-spinner fa-spin text-3xl text-[#16A085]"></i>
                </div>
             ) : addresses.length === 0 ? (
-              <div className="col-span-1 md:col-span-2 text-center py-16 bg-white rounded-3xl border border-gray-100 shadow-sm">
-                <div className="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300 text-5xl">
+              <div className="col-span-1 md:col-span-2 text-center py-16 px-4 bg-white rounded-2xl sm:rounded-3xl border border-gray-100 shadow-sm">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300 text-4xl sm:text-5xl">
                   <i className="fa-solid fa-map-location-dot"></i>
                 </div>
-                <h3 className="text-xl font-bold text-gray-700 mb-2">ยังไม่มีที่อยู่จัดส่ง</h3>
-                <p className="text-gray-500 font-medium">เพิ่มที่อยู่สำหรับการจัดส่งสินค้าเพื่อให้การสั่งซื้อของคุณรวดเร็วขึ้น</p>
+                <h3 className="text-lg sm:text-xl font-bold text-gray-700 mb-2">ยังไม่มีที่อยู่จัดส่ง</h3>
+                <p className="text-xs sm:text-sm text-gray-500 font-medium">เพิ่มที่อยู่สำหรับการจัดส่งสินค้าเพื่อให้การสั่งซื้อของคุณรวดเร็วขึ้น</p>
               </div>
             ) : (
               addresses.map((addr) => (
-                <div key={addr.id} className={`bg-white rounded-3xl p-6 transition-all duration-300 ${addr.isDefault ? "border-2 border-[#16A085] shadow-md relative overflow-hidden" : "border border-gray-200 shadow-sm hover:shadow-md hover:border-[#16A085]/50"}`}>
+                <div key={addr.id} className={`bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 transition-all duration-300 ${addr.isDefault ? "border-2 border-[#16A085] shadow-md relative overflow-hidden" : "border border-gray-200 shadow-sm hover:shadow-md hover:border-[#16A085]/50"}`}>
                   {addr.isDefault && (
-                    <div className="absolute top-0 right-0 bg-[#16A085] text-white text-[10px] font-black px-4 py-1.5 rounded-bl-xl shadow-sm tracking-widest">
+                    <div className="absolute top-0 right-0 bg-[#16A085] text-white text-[9px] sm:text-[10px] font-black px-3 sm:px-4 py-1 sm:py-1.5 rounded-bl-xl shadow-xs tracking-widest">
                       ค่าเริ่มต้น
                     </div>
                   )}
                   <div className="flex flex-col h-full">
-                    <div className="mb-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <h3 className="font-black text-gray-800 text-xl">{addr.recipientName}</h3>
+                    <div className="mb-3 sm:mb-4">
+                      <div className="flex items-center gap-2 mb-2 sm:mb-3">
+                        <h3 className="font-black text-gray-800 text-base sm:text-xl truncate">{addr.recipientName}</h3>
                         <span className="text-gray-300">|</span>
-                        <span className="text-sm font-bold text-gray-500">{addr.phone}</span>
+                        <span className="text-xs sm:text-sm font-bold text-gray-500 whitespace-nowrap">{addr.phone}</span>
                       </div>
                       <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
-                        <p className="text-sm text-gray-700 font-medium mb-1 leading-relaxed">{formatAddress(addr)}</p>
-                        <p className="text-sm text-gray-600 font-medium">ต.{addr.subdistrictNameTh} อ.{addr.districtNameTh} <br />จ.{addr.provinceNameTh} {addr.postalCode}</p>
+                        <p className="text-xs sm:text-sm text-gray-700 font-medium mb-1 leading-relaxed">{formatAddress(addr)}</p>
+                        <p className="text-xs sm:text-sm text-gray-600 font-medium">ต.{addr.subdistrictNameTh} อ.{addr.districtNameTh} <br />จ.{addr.provinceNameTh} {addr.postalCode}</p>
                       </div>
                     </div>
                     
-                    <div className="flex flex-wrap gap-2 mt-auto pt-4 border-t border-gray-100">
+                    <div className="flex flex-wrap gap-2 mt-auto pt-3 sm:pt-4 border-t border-gray-100">
                       {!addr.isDefault && (
-                        <button onClick={() => handleSetDefault(addr.id)} className="flex-1 text-xs font-bold text-[#16A085] bg-[#D4F1BB]/30 hover:bg-[#D4F1BB] rounded-xl px-4 py-2.5 transition-all shadow-sm">
+                        <button onClick={() => handleSetDefault(addr.id)} className="flex-1 text-[11px] sm:text-xs font-bold text-[#16A085] bg-[#D4F1BB]/30 hover:bg-[#D4F1BB] rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 transition-all shadow-2xs active:scale-95 cursor-pointer">
                           <i className="fa-solid fa-check mr-1"></i> ตั้งเป็นค่าเริ่มต้น
                         </button>
                       )}
-                      <button onClick={() => handleEdit(addr)} className="flex-1 text-xs font-bold text-gray-600 hover:text-[#16A085] bg-white border-2 border-gray-100 hover:border-[#16A085] rounded-xl px-4 py-2.5 transition-all shadow-sm">
+                      <button onClick={() => handleEdit(addr)} className="flex-1 text-[11px] sm:text-xs font-bold text-gray-600 hover:text-[#16A085] bg-white border border-gray-200 hover:border-[#16A085] rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 transition-all shadow-2xs active:scale-95 cursor-pointer">
                         <i className="fa-solid fa-pen mr-1"></i> แก้ไข
                       </button>
-                      <button onClick={() => handleDelete(addr.id)} className="flex-1 text-xs font-bold text-red-500 bg-white border-2 border-red-100 hover:border-red-500 hover:bg-red-50 rounded-xl px-4 py-2.5 transition-all shadow-sm">
+                      <button onClick={() => handleDelete(addr.id)} className="flex-1 text-[11px] sm:text-xs font-bold text-red-500 bg-white border border-red-200 hover:border-red-500 hover:bg-red-50 rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 transition-all shadow-2xs active:scale-95 cursor-pointer">
                         <i className="fa-solid fa-trash mr-1"></i> ลบ
                       </button>
                     </div>

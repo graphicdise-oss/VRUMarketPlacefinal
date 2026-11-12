@@ -127,6 +127,16 @@ export class ShopController {
     return this.shops.mine(actor.id);
   }
 
+  @Get('me/following')
+  @ApiOperation({
+    summary: 'List shops followed by current user',
+  })
+  @ApiResponse({ status: 200, type: [ShopDto] })
+  @ApiCookieAuth('access_token')
+  async listFollowed(@CurrentUser() actor: CurrentUserType): Promise<ShopDto[]> {
+    return this.shops.listFollowedShops(actor.id);
+  }
+
   @Patch('me')
   @RefusesAdmins() // §87 (N29): an admin runs no shop — an old closed one included
   @ApiOperation({

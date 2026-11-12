@@ -51,6 +51,7 @@ import { UpdateProductDto } from '../dto/update-product.dto.js';
 import { ProductIdScopeResolver } from '../product-id.scope-resolver.js';
 import { ProductAdminService } from '../services/product-admin.service.js';
 import { ProductService } from '../services/product.service.js';
+import { SearchAnalyticsService } from '../services/search-analytics.service.js';
 
 /**
  * `Product` (#41 creation/images, #42 publish toggle + the public views, #43 approve/reject).
@@ -79,6 +80,7 @@ export class ProductController {
   constructor(
     private readonly products: ProductService,
     private readonly productAdmin: ProductAdminService,
+    private readonly searchAnalytics: SearchAnalyticsService,
   ) {}
 
   @Post()
@@ -370,6 +372,18 @@ export class ProductController {
     return this.products.listMine(actor.id, query.limit, query.cursor);
   }
 
+  @Get('search/trending')
+  @Public()
+  @ApiOperation({
+    summary: 'Get trending search keywords',
+    description: 'Returns real trending search terms from recent community searches with guaranteed fallback.',
+  })
+  @ApiResponse({ status: 200, description: 'List of trending search keywords.' })
+  async trendingSearches(): Promise<{ keywords: string[] }> {
+    const keywords = await this.searchAnalytics.getTrendingKeywords(6);
+    return { keywords };
+  }
+
   @Get('search')
   @Public()
   @ApiOperation({
@@ -384,7 +398,11 @@ export class ProductController {
   })
   @ApiPaginatedResponse(PublicProductDto)
   async search(@Query() query: SearchProductsQueryDto): Promise<Page<PublicProductDto>> {
-    return this.products.search(query);
+    const page = await this.products.search(query);
+    if (query.q) {
+      void this.searchAnalytics.recordSearch(query.q, page.items.length);
+    }
+    return page;
   }
 
   @Get()

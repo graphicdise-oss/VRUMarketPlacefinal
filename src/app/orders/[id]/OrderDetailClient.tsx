@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import MobileNav from "@/components/layout/MobileNav";
 import { Order } from "@/types";
 import { formatPrice, formatDateTime, formatCountdown, getOrderStatusLabel } from "@/lib/utils";
 import Breadcrumb from "@/components/ui/Breadcrumb";
@@ -11,9 +12,11 @@ import Breadcrumb from "@/components/ui/Breadcrumb";
 // Removed mock data
 
 import { buyerOrderApi } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api-modules/core";
 import { buyerDisputeApi } from "@/lib/api-modules/dispute";
 import type { DisputeDto } from "@/lib/api-modules/dispute";
 import type { PaymentChannelDto } from "@/lib/api-modules/shop";
+import type { RefundSlipDto, RefundAccountPayload } from "@/lib/api-modules/order";
 import { mapOrderDto } from "@/lib/order-mapper";
 import { getProductFallbackImage } from "@/lib/product-mapper";
 
@@ -28,6 +31,14 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
   const [paymentChannels, setPaymentChannels] = useState<PaymentChannelDto[]>([]);
   const [selectedQrPreview, setSelectedQrPreview] = useState<string | null>(null);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [refundSlips, setRefundSlips] = useState<RefundSlipDto[]>([]);
+  const [isSubmittingRefundAccount, setIsSubmittingRefundAccount] = useState(false);
+  const [refundType, setRefundType] = useState<"PROMPTPAY" | "BANK_TRANSFER">("PROMPTPAY");
+  const [refundBankName, setRefundBankName] = useState("");
+  const [refundBankAccountNumber, setRefundBankAccountNumber] = useState("");
+  const [refundBankAccountName, setRefundBankAccountName] = useState("");
+  const [refundPromptPayId, setRefundPromptPayId] = useState("");
+  const [isConfirmingRefund, setIsConfirmingRefund] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleCopy = (text: string, label: string) => {
@@ -66,12 +77,16 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
         });
       }
 
-      if (o.displayStatus === "PAYMENT_SUBMITTED" || o.displayStatus === "PAID" || o.displayStatus === "SHIPPED" || o.displayStatus === "COMPLETED") {
+      if (
+        o.status !== "AWAITING_SHIPPING_QUOTE" &&
+        o.status !== "AWAITING_PAYMENT" &&
+        o.displayStatus !== "AWAITING_SHIPPING_QUOTE" &&
+        o.displayStatus !== "AWAITING_PAYMENT"
+      ) {
         buyerOrderApi.getSlips(orderId).then(res => {
           if (res && res.length > 0) {
-            // Use the most recent slip or first slip
             const slip = res[res.length - 1] || res[0]; 
-            const slipUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1"}/orders/${orderId}/payment-slips/${slip.id}/file`;
+            const slipUrl = `${API_BASE_URL}/orders/${orderId}/payment-slips/${slip.id}/file`;
             setOrder(prev => prev ? { ...prev, slipImageUrl: slipUrl } : prev);
           }
         }).catch(console.error);
@@ -79,9 +94,20 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
         buyerOrderApi.getShippingSlips(orderId).then(res => {
           if (res && res.length > 0) {
             const slip = res[res.length - 1] || res[0];
-            const slipUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1"}/orders/${orderId}/shipping-slips/${slip.id}/file`;
+            const slipUrl = `${API_BASE_URL}/orders/${orderId}/shipping-slips/${slip.id}/file`;
             setOrder(prev => prev ? { ...prev, shippingSlipUrl: slipUrl } : prev);
           }
+        }).catch(console.error);
+      }
+
+      if (
+        o.status === "REFUND_ORDERED" ||
+        o.status === "REFUNDED" ||
+        o.displayStatus === "REFUND_ORDERED" ||
+        o.displayStatus === "REFUNDED"
+      ) {
+        buyerOrderApi.getRefundSlips(orderId).then(res => {
+          setRefundSlips(res || []);
         }).catch(console.error);
       }
 
@@ -152,6 +178,70 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
     }
   };
 
+  const handleSubmitRefundAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (refundType === "PROMPTPAY") {
+      if (!refundPromptPayId.trim()) {
+        alert("กรุณากรอกเบอร์โทรศัพท์หรือเลขประจำตัวประชาชนสำหรับพร้อมเพย์");
+        return;
+      }
+    } else {
+      if (!refundBankName.trim() || !refundBankAccountNumber.trim() || !refundBankAccountName.trim()) {
+        alert("กรุณากรอกข้อมูลบัญชีธนาคารให้ครบถ้วน (ชื่อธนาคาร, เลขที่บัญชี, ชื่อบัญชี)");
+        return;
+      }
+    }
+    setIsSubmittingRefundAccount(true);
+    try {
+      const payload: RefundAccountPayload = refundType === "PROMPTPAY"
+        ? { type: "PROMPTPAY", promptPayId: refundPromptPayId.trim() }
+        : {
+            type: "BANK_TRANSFER",
+            bankName: refundBankName.trim(),
+            bankAccountNumber: refundBankAccountNumber.trim(),
+            bankAccountName: refundBankAccountName.trim(),
+          };
+      await buyerOrderApi.submitRefundAccount(orderId, payload);
+      alert("บันทึกบัญชีรับเงินคืนเรียบร้อยแล้ว ร้านค้าจะดำเนินการโอนเงินคืนให้ท่าน");
+      await fetchOrder();
+    } catch (err) {
+      alert("เกิดข้อผิดพลาดในการบันทึกบัญชี: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsSubmittingRefundAccount(false);
+    }
+  };
+
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  const handleCancelOrder = async () => {
+    if (!confirm("คุณต้องการยกเลิกคำสั่งซื้อนี้ใช่หรือไม่?")) return;
+    setIsCancelling(true);
+    try {
+      await buyerOrderApi.cancel(orderId);
+      alert("ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว");
+      await fetchOrder();
+    } catch (err) {
+      console.error("Failed to cancel order", err);
+      alert("เกิดข้อผิดพลาดในการยกเลิกคำสั่งซื้อ: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleConfirmRefundReceived = async () => {
+    if (!confirm("คุณตรวจสอบและได้รับเงินคืนเข้าบัญชีเรียบร้อยแล้วใช่หรือไม่?")) return;
+    setIsConfirmingRefund(true);
+    try {
+      await buyerOrderApi.confirmRefundReceived(orderId);
+      alert("ยืนยันการรับเงินคืนเรียบร้อยแล้ว คำสั่งซื้อเสร็จสิ้น");
+      await fetchOrder();
+    } catch (err) {
+      alert("เกิดข้อผิดพลาด: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsConfirmingRefund(false);
+    }
+  };
+
   if (!order) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-[#16A085]"></i></div>;
 
   const itemsTotal = order.items.reduce((sum, i) => sum + (i.priceAtPurchaseMinor * i.qty), 0);
@@ -164,29 +254,46 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
   else if (order.status === "SHIPPED") statusBadgeClass = "bg-blue-50 text-blue-600 border border-blue-200";
   else if (order.status === "COMPLETED") statusBadgeClass = "bg-green-50 text-green-700 border border-green-200";
   else if (order.status === "CANCELLED") statusBadgeClass = "bg-gray-100 text-gray-500 border border-gray-200";
+  else if (order.status === "REFUND_ORDERED") statusBadgeClass = "bg-purple-50 text-purple-700 border border-purple-200";
+  else if (order.status === "REFUNDED") statusBadgeClass = "bg-emerald-50 text-emerald-700 border border-emerald-200";
+  else if (order.status === "FROZEN") statusBadgeClass = "bg-cyan-50 text-cyan-800 border border-cyan-200";
+  else if (order.status === "DISPUTED") statusBadgeClass = "bg-red-50 text-red-700 border border-red-200";
 
   return (
     <div className="min-h-screen bg-gray-50/50 flex flex-col">
       <Header />
-      <main className="flex-grow max-w-4xl mx-auto w-full px-4 py-8 md:py-10">
+      <main className="flex-grow max-w-4xl mx-auto w-full px-3 sm:px-4 pt-4 sm:pt-6 pb-24 md:pb-10">
         <Breadcrumb items={[
           { label: "คำสั่งซื้อของฉัน", href: "/orders" },
-          { label: `คำสั่งซื้อ #${order.id}` }
+          { label: `คำสั่งซื้อ #${order.id.slice(0, 8).toUpperCase()}` }
         ]} />
         
         {/* Header Section */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-          <div className="flex items-center gap-4">
-            <Link href="/orders" className="w-12 h-12 bg-white border-2 border-gray-100 rounded-full flex items-center justify-center text-gray-500 hover:text-[#16A085] hover:border-[#16A085]/50 transition shadow-sm">
-              <i className="fa-solid fa-arrow-left"></i>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-6 sm:mb-8">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <Link href="/orders" className="w-10 h-10 sm:w-12 sm:h-12 bg-white border-2 border-gray-100 rounded-full flex items-center justify-center text-gray-500 hover:text-[#16A085] hover:border-[#16A085]/50 transition shadow-2xs flex-shrink-0">
+              <i className="fa-solid fa-arrow-left text-sm sm:text-base"></i>
             </Link>
-            <div>
-              <h2 className="text-2xl font-black text-gray-800">คำสั่งซื้อ #{order.id}</h2>
-              <p className="text-sm text-gray-500 font-medium mt-1">สั่งเมื่อ {formatDateTime(order.createdAt)}</p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg sm:text-2xl font-black text-gray-800">คำสั่งซื้อ #{order.id.slice(0, 8).toUpperCase()}</h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(order.id);
+                    alert("คัดลอกรหัสคำสั่งซื้อเต็มแล้ว!");
+                  }}
+                  className="text-gray-400 hover:text-[#16A085] text-xs cursor-pointer p-1"
+                  title="คัดลอกรหัสคำสั่งซื้อเต็ม"
+                >
+                  <i className="fa-regular fa-copy"></i>
+                </button>
+              </div>
+              <p className="text-xs sm:text-sm text-gray-500 font-medium mt-0.5">สั่งเมื่อ {formatDateTime(order.createdAt)}</p>
             </div>
           </div>
-          <div>
-            <span className={`px-5 py-2 rounded-full text-sm font-bold shadow-sm ${statusBadgeClass}`}>
+          <div className="self-start sm:self-auto">
+            <span className={`px-4 sm:px-5 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-bold shadow-2xs ${statusBadgeClass}`}>
               {getOrderStatusLabel(order.status)}
             </span>
           </div>
@@ -216,77 +323,91 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
         {/* Dynamic Status Action Box (The Core State Machine UX) */}
         <div className="mb-8">
           {order.status === "AWAITING_SHIPPING_QUOTE" && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-3xl p-8 text-center shadow-sm">
-              <div className="w-20 h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-5 text-yellow-500 text-4xl shadow-inner">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-2xl sm:rounded-3xl p-6 sm:p-8 text-center shadow-sm">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-5 text-yellow-500 text-3xl sm:text-4xl shadow-inner">
                 <i className="fa-solid fa-clock animate-pulse"></i>
               </div>
-              <h3 className="text-xl font-bold text-yellow-800 mb-2">รอร้านค้าแจ้งค่าจัดส่ง</h3>
-              <p className="text-base text-yellow-700 font-medium">ร้านค้ากำลังคำนวณค่าจัดส่งตามขนาดและน้ำหนักจริง</p>
+              <h3 className="text-lg sm:text-xl font-bold text-yellow-800 mb-1.5 sm:mb-2">รอร้านค้าแจ้งค่าจัดส่ง</h3>
+              <p className="text-xs sm:text-base text-yellow-700 font-medium">ร้านค้ากำลังคำนวณค่าจัดส่งตามขนาดและน้ำหนักจริง</p>
               {order.shippingQuoteDeadline && (
-                <div className="mt-5 inline-block bg-white border-2 border-yellow-200 rounded-full px-6 py-2 text-sm font-bold text-yellow-700 shadow-sm">
+                <div className="mt-4 sm:mt-5 inline-block bg-white border-2 border-yellow-200 rounded-full px-4 sm:px-6 py-1.5 sm:py-2 text-xs sm:text-sm font-bold text-yellow-700 shadow-sm">
                   <i className="fa-solid fa-stopwatch mr-2"></i> หมดเวลาใน: {formatCountdown(order.shippingQuoteDeadline)}
                 </div>
               )}
+              <div className="mt-6 pt-5 border-t border-yellow-200/70 max-w-sm mx-auto">
+                <button
+                  type="button"
+                  onClick={handleCancelOrder}
+                  disabled={isCancelling}
+                  className="bg-white border-2 border-red-200 text-red-500 hover:border-red-400 hover:bg-red-50 font-bold py-2.5 px-6 rounded-full text-xs sm:text-sm transition-all shadow-2xs active:scale-95 cursor-pointer inline-flex items-center gap-2"
+                >
+                  {isCancelling ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-xmark"></i>}
+                  ยกเลิกคำสั่งซื้อนี้
+                </button>
+                <p className="text-[11px] text-yellow-800/70 mt-2 font-medium">
+                  ยกเลิกได้ทันทีโดยไม่มีค่าใช้จ่าย ในระหว่างรอร้านค้าแจ้งค่าส่ง
+                </p>
+              </div>
             </div>
           )}
 
           {order.status === "AWAITING_PAYMENT" && (
-            <div className="bg-white border-2 border-orange-200 rounded-3xl shadow-sm overflow-hidden">
-              <div className="bg-gradient-to-r from-orange-50 to-orange-100/50 p-6 border-b border-orange-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-xl shadow-inner">
+            <div className="bg-white border-2 border-orange-200 rounded-2xl sm:rounded-3xl shadow-sm overflow-hidden">
+              <div className="bg-gradient-to-r from-orange-50 to-orange-100/50 p-4 sm:p-6 border-b border-orange-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-lg sm:text-xl shadow-inner flex-shrink-0">
                     <i className="fa-solid fa-money-bill-wave"></i>
                   </div>
                   <div>
-                    <h3 className="font-bold text-orange-800 text-lg">ร้านค้าแจ้งค่าจัดส่งแล้ว</h3>
-                    <p className="text-sm text-orange-600 font-medium mt-1">กรุณาตรวจสอบยอดและชำระเงินก่อนหมดเวลา</p>
+                    <h3 className="font-bold text-orange-800 text-base sm:text-lg">ร้านค้าแจ้งค่าจัดส่งแล้ว</h3>
+                    <p className="text-xs sm:text-sm text-orange-600 font-medium mt-0.5">กรุณาตรวจสอบยอดและชำระเงินก่อนหมดเวลา</p>
                   </div>
                 </div>
                 {order.paymentDeadline && (
-                  <div className="bg-white border border-orange-200 text-orange-700 font-bold px-4 py-2 rounded-full text-sm shadow-sm flex items-center gap-2">
+                  <div className="bg-white border border-orange-200 text-orange-700 font-bold px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm shadow-xs flex items-center gap-2 self-start sm:self-auto">
                     <i className="fa-regular fa-clock"></i> {formatCountdown(order.paymentDeadline)}
                   </div>
                 )}
               </div>
               
-              <div className="p-6 md:p-8">
+              <div className="p-4 sm:p-6 md:p-8">
                 {!showRejectForm ? (
                   <>
-                    <div className="mb-8 p-6 bg-gray-50 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 border border-gray-100">
+                    <div className="mb-6 sm:mb-8 p-3.5 sm:p-6 bg-gray-50 rounded-xl sm:rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3 sm:gap-4 border border-gray-100">
                       <div className="text-center sm:text-left">
-                        <p className="text-sm text-gray-500 font-medium mb-1">ค่าจัดส่งที่ร้านแจ้ง:</p>
-                        <p className="text-2xl font-black text-[#16A085]">{formatPrice(order.shippingCostMinor || 0)}</p>
+                        <p className="text-xs sm:text-sm text-gray-500 font-medium mb-0.5 sm:mb-1">ค่าจัดส่งที่ร้านแจ้ง:</p>
+                        <p className="text-xl sm:text-2xl font-black text-[#16A085]">{formatPrice(order.shippingCostMinor || 0)}</p>
                       </div>
                       <div className="w-full sm:w-px h-px sm:h-12 bg-gray-200"></div>
                       <div className="text-center sm:text-right">
-                        <p className="text-sm text-gray-500 font-medium mb-1">ยอดชำระสุทธิ:</p>
-                        <p className="text-2xl font-black text-[#16A085]">{formatPrice(order.totalAmountMinor || 0)}</p>
+                        <p className="text-xs sm:text-sm text-gray-500 font-medium mb-0.5 sm:mb-1">ยอดชำระสุทธิ:</p>
+                        <p className="text-xl sm:text-2xl font-black text-[#16A085]">{formatPrice(order.totalAmountMinor || 0)}</p>
                       </div>
                     </div>
 
-                    <div className="mb-8 border-2 border-emerald-100 rounded-3xl p-6 md:p-8 bg-gradient-to-b from-white to-[#F9FCF8] shadow-sm">
-                      <div className="flex items-center justify-between mb-5 pb-4 border-b border-gray-100">
-                        <h4 className="font-black text-gray-800 text-lg flex items-center gap-2.5">
+                    <div className="mb-6 sm:mb-8 border-2 border-emerald-100 rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 bg-gradient-to-b from-white to-[#F9FCF8] shadow-xs">
+                      <div className="flex items-center justify-between mb-4 sm:mb-5 pb-3 sm:pb-4 border-b border-gray-100">
+                        <h4 className="font-black text-gray-800 text-base sm:text-lg flex items-center gap-2 sm:gap-2.5">
                           <i className="fa-solid fa-building-columns text-[#16A085]"></i> ช่องทางชำระเงินของร้านค้า
                         </h4>
-                        <span className="text-xs bg-[#D4F1BB]/50 text-[#16A085] font-bold px-3 py-1 rounded-full border border-[#16A085]/20">
+                        <span className="text-[11px] sm:text-xs bg-[#D4F1BB]/50 text-[#16A085] font-bold px-2.5 sm:px-3 py-1 rounded-full border border-[#16A085]/20">
                           ชำระตรงกับร้านค้า
                         </span>
                       </div>
 
                       {paymentChannels.length === 0 ? (
-                        <div className="text-center py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                          <i className="fa-solid fa-circle-info text-3xl text-gray-300 mb-2"></i>
-                          <p className="font-bold text-gray-700 text-sm">ร้านค้ายังไม่ได้บันทึกช่องทางชำระเงินในระบบ</p>
-                          <p className="text-xs text-gray-500 mt-1">กรุณาทักแชทสอบถามเลขบัญชีกับทางร้านค้าโดยตรง</p>
+                        <div className="text-center py-6 sm:py-8 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                          <i className="fa-solid fa-circle-info text-2xl sm:text-3xl text-gray-300 mb-2"></i>
+                          <p className="font-bold text-gray-700 text-xs sm:text-sm">ร้านค้ายังไม่ได้บันทึกช่องทางชำระเงินในระบบ</p>
+                          <p className="text-[11px] sm:text-xs text-gray-500 mt-1">กรุณาทักแชทสอบถามเลขบัญชีกับทางร้านค้าโดยตรง</p>
                           <Link href="/chat" className="inline-flex items-center gap-1.5 text-xs text-[#16A085] font-bold mt-3 hover:underline">
                             <i className="fa-regular fa-message"></i> เปิดแชทคุยกับร้านค้า
                           </Link>
                         </div>
                       ) : (
-                        <div className="space-y-5">
+                        <div className="space-y-4 sm:space-y-5">
                           {paymentChannels.map((ch) => (
-                            <div key={ch.id} className="flex flex-col md:flex-row gap-6 items-center p-5 bg-white rounded-2xl border border-gray-200 shadow-sm">
+                            <div key={ch.id} className="flex flex-col md:flex-row gap-4 sm:gap-6 items-center p-3.5 sm:p-5 bg-white rounded-xl sm:rounded-2xl border border-gray-200 shadow-2xs">
                               {ch.hasQrImage ? (
                                 <div 
                                   className="relative group cursor-pointer flex-shrink-0"
@@ -296,15 +417,15 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
                                   <img 
                                     src={`/api/v1/orders/${orderId}/payment-channels/${ch.id}/qr-image`} 
                                     alt="QR Code สำหรับชำระเงิน" 
-                                    className="w-36 h-36 object-contain rounded-2xl border-2 border-[#16A085]/30 bg-white p-2 shadow-sm group-hover:scale-105 transition-transform" 
+                                    className="w-32 h-32 sm:w-36 sm:h-36 object-contain rounded-xl sm:rounded-2xl border-2 border-[#16A085]/30 bg-white p-2 shadow-2xs group-hover:scale-105 transition-transform" 
                                   />
-                                  <div className="absolute inset-0 bg-black/40 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-opacity">
+                                  <div className="absolute inset-0 bg-black/40 rounded-xl sm:rounded-2xl opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-opacity">
                                     <i className="fa-solid fa-magnifying-glass-plus mr-1"></i> ดูภาพใหญ่
                                   </div>
                                 </div>
                               ) : (
-                                <div className="w-28 h-28 bg-emerald-50 rounded-2xl flex flex-col items-center justify-center border border-emerald-100 text-[#16A085] flex-shrink-0">
-                                  <i className="fa-solid fa-building-columns text-4xl mb-1"></i>
+                                <div className="w-24 h-24 sm:w-28 sm:h-28 bg-emerald-50 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center border border-emerald-100 text-[#16A085] flex-shrink-0">
+                                  <i className="fa-solid fa-building-columns text-3xl sm:text-4xl mb-1"></i>
                                   <span className="text-[10px] font-bold">โอนผ่านธนาคาร</span>
                                 </div>
                               )}
@@ -316,17 +437,17 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
 
                                 {ch.type === "BANK_TRANSFER" && (
                                   <>
-                                    <div className="flex flex-col md:flex-row items-center gap-2">
+                                    <div className="flex flex-col md:flex-row items-center gap-1.5 sm:gap-2 justify-center md:justify-start">
                                       <span className="text-gray-500 text-xs font-bold">เลขที่บัญชี:</span>
                                       <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
-                                        <span className="text-gray-800 text-lg font-mono font-bold tracking-wider">
+                                        <span className="text-gray-800 text-base sm:text-lg font-mono font-bold tracking-wider break-all">
                                           {ch.bankAccountNumber || "-"}
                                         </span>
                                         {ch.bankAccountNumber && (
                                           <button
                                             type="button"
                                             onClick={() => handleCopy(ch.bankAccountNumber!, ch.id)}
-                                            className="text-xs text-[#16A085] hover:text-[#117A65] font-bold px-2 py-0.5 rounded bg-white border border-gray-200 hover:bg-emerald-50 transition"
+                                            className="text-xs text-[#16A085] hover:text-[#117A65] font-bold px-2 py-0.5 rounded bg-white border border-gray-200 hover:bg-emerald-50 transition active:scale-95 cursor-pointer"
                                           >
                                             {copiedText === ch.id ? <><i className="fa-solid fa-check text-green-600"></i> คัดลอกแล้ว</> : <><i className="fa-regular fa-copy"></i> คัดลอก</>}
                                           </button>
@@ -342,16 +463,16 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
                                 )}
 
                                 {ch.type === "PROMPTPAY" && ch.promptPayId && (
-                                  <div className="flex flex-col md:flex-row items-center gap-2">
+                                  <div className="flex flex-col md:flex-row items-center gap-1.5 sm:gap-2 justify-center md:justify-start">
                                     <span className="text-gray-500 text-xs font-bold">หมายเลขพร้อมเพย์:</span>
                                     <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
-                                      <span className="text-gray-800 text-lg font-mono font-bold tracking-wider">
+                                      <span className="text-gray-800 text-base sm:text-lg font-mono font-bold tracking-wider break-all">
                                         {ch.promptPayId}
                                       </span>
                                       <button
                                         type="button"
                                         onClick={() => handleCopy(ch.promptPayId!, ch.id)}
-                                        className="text-xs text-[#16A085] hover:text-[#117A65] font-bold px-2 py-0.5 rounded bg-white border border-gray-200 hover:bg-emerald-50 transition"
+                                        className="text-xs text-[#16A085] hover:text-[#117A65] font-bold px-2 py-0.5 rounded bg-white border border-gray-200 hover:bg-emerald-50 transition active:scale-95 cursor-pointer"
                                       >
                                         {copiedText === ch.id ? <><i className="fa-solid fa-check text-green-600"></i> คัดลอกแล้ว</> : <><i className="fa-regular fa-copy"></i> คัดลอก</>}
                                       </button>
@@ -365,18 +486,18 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <button onClick={() => setShowRejectForm(true)} className="bg-white border-2 border-red-200 text-red-500 hover:border-red-500 hover:bg-red-50 font-bold py-3.5 rounded-full transition-all shadow-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                      <button onClick={() => setShowRejectForm(true)} className="bg-white border-2 border-red-200 text-red-500 hover:border-red-500 hover:bg-red-50 font-bold py-3 sm:py-3.5 rounded-full text-xs sm:text-sm transition-all shadow-2xs active:scale-95 cursor-pointer">
                         <i className="fa-solid fa-xmark mr-2"></i> ปฏิเสธค่าจัดส่ง (ยกเลิก)
                       </button>
-                      <button onClick={handleUploadSlip} disabled={isUploading} className="bg-[#16A085] hover:bg-[#16A085]/90 text-white font-bold py-3.5 rounded-full shadow-md transition-all flex items-center justify-center gap-2">
+                      <button onClick={handleUploadSlip} disabled={isUploading} className="bg-[#16A085] hover:bg-[#16A085]/90 text-white font-bold py-3 sm:py-3.5 rounded-full text-xs sm:text-sm shadow-sm hover:shadow transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer">
                         {isUploading ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-upload"></i>} 
                         อัปโหลดหลักฐานการโอน
                       </button>
                       <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
                     </div>
-                    <div className="mt-4 p-3 bg-red-50 rounded-xl text-center">
-                      <p className="text-xs text-red-500 font-bold"><i className="fa-solid fa-triangle-exclamation mr-1"></i> ห้ามส่งสลิปผ่านทางแชทเด็ดขาด ต้องแนบผ่านระบบเพื่อความปลอดภัยของออเดอร์</p>
+                    <div className="mt-3.5 sm:mt-4 p-2.5 sm:p-3 bg-red-50 rounded-xl text-center">
+                      <p className="text-[11px] sm:text-xs text-red-500 font-bold"><i className="fa-solid fa-triangle-exclamation mr-1"></i> ห้ามส่งสลิปผ่านทางแชทเด็ดขาด ต้องแนบผ่านระบบเพื่อความปลอดภัยของออเดอร์</p>
                     </div>
                   </>
                 ) : (
@@ -547,33 +668,253 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
               {order.rejectionReason && <p className="text-sm text-gray-500 font-medium bg-white px-4 py-2 rounded-xl inline-block border border-gray-100">เหตุผล: <span className="font-bold">{order.rejectionReason}</span></p>}
             </div>
           )}
+
+          {order.status === "REFUND_ORDERED" && (
+            <div className="bg-purple-50 border-2 border-purple-200 rounded-3xl p-6 md:p-8 shadow-sm">
+              <div className="flex items-center gap-4 mb-5">
+                <div className="w-14 h-14 bg-purple-100 text-purple-700 rounded-full flex items-center justify-center text-2xl shadow-inner flex-shrink-0">
+                  <i className="fa-solid fa-hand-holding-dollar"></i>
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-purple-900">คำสั่งซื้ออยู่ในสถานะคืนเงิน (REFUND_ORDERED)</h3>
+                  <p className="text-sm text-purple-700 font-medium">ร้านค้ามีหน้าที่ต้องคืนเงินให้กับคุณ</p>
+                </div>
+              </div>
+
+              {!order.refundAccountType ? (
+                <div className="bg-white rounded-2xl p-6 border border-purple-200 shadow-sm">
+                  <h4 className="font-bold text-gray-800 text-base mb-2 flex items-center gap-2">
+                    <i className="fa-solid fa-credit-card text-purple-600"></i> กรอกช่องทางรับเงินคืน
+                  </h4>
+                  <p className="text-xs text-gray-500 mb-4 leading-relaxed">
+                    กรุณาระบุบัญชีธนาคารหรือพร้อมเพย์สำหรับรับเงินคืน ข้อมูลนี้จะถูกแสดงให้ร้านค้าโอนเงินคืนและจะถูกลบอัตโนมัติเมื่อคืนเงินสำเร็จ
+                  </p>
+                  <form onSubmit={handleSubmitRefundAccount} className="space-y-4">
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="refundType"
+                          value="PROMPTPAY"
+                          checked={refundType === "PROMPTPAY"}
+                          onChange={() => setRefundType("PROMPTPAY")}
+                          className="text-purple-600 focus:ring-purple-500"
+                        />
+                        พร้อมเพย์ (PromptPay)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-700 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="refundType"
+                          value="BANK_TRANSFER"
+                          checked={refundType === "BANK_TRANSFER"}
+                          onChange={() => setRefundType("BANK_TRANSFER")}
+                          className="text-purple-600 focus:ring-purple-500"
+                        />
+                        โอนผ่านบัญชีธนาคาร
+                      </label>
+                    </div>
+
+                    {refundType === "PROMPTPAY" ? (
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">เบอร์โทรศัพท์ หรือ เลขประจำตัวประชาชน</label>
+                        <input
+                          type="text"
+                          required
+                          value={refundPromptPayId}
+                          onChange={(e) => setRefundPromptPayId(e.target.value)}
+                          placeholder="เช่น 0812345678 หรือ 1234567890123"
+                          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">ชื่อธนาคาร</label>
+                          <input
+                            type="text"
+                            required
+                            value={refundBankName}
+                            onChange={(e) => setRefundBankName(e.target.value)}
+                            placeholder="เช่น กสิกรไทย, ไทยพาณิชย์, กรุงเทพ"
+                            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">เลขที่บัญชี</label>
+                          <input
+                            type="text"
+                            required
+                            value={refundBankAccountNumber}
+                            onChange={(e) => setRefundBankAccountNumber(e.target.value)}
+                            placeholder="เลขที่บัญชีเงินฝาก"
+                            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">ชื่อบัญชี</label>
+                          <input
+                            type="text"
+                            required
+                            value={refundBankAccountName}
+                            onChange={(e) => setRefundBankAccountName(e.target.value)}
+                            placeholder="ชื่อ-นามสกุล เจ้าของบัญชี"
+                            className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingRefundAccount}
+                      className="py-3 px-6 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm transition shadow-sm disabled:opacity-60 flex items-center gap-2"
+                    >
+                      {isSubmittingRefundAccount ? (
+                        <>
+                          <i className="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...
+                        </>
+                      ) : (
+                        "บันทึกบัญชีรับเงินคืน"
+                      )}
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-white rounded-2xl p-5 border border-purple-200">
+                    <span className="text-xs font-bold text-purple-700 uppercase tracking-wider block mb-2">
+                      บัญชีรับเงินคืนที่คุณแจ้งไว้
+                    </span>
+                    <p className="text-sm text-gray-800 font-bold">
+                      {order.refundAccountType === "PROMPTPAY"
+                        ? `พร้อมเพย์: ${order.refundPromptPayId}`
+                        : `${order.refundBankName} เลขที่ ${order.refundBankAccountNumber} (${order.refundBankAccountName})`}
+                    </p>
+                  </div>
+
+                  {refundSlips.length > 0 ? (
+                    <div className="bg-white rounded-2xl p-6 border border-purple-200 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                          <i className="fa-solid fa-receipt text-green-600"></i> สลิปหลักฐานการคืนเงินจากร้านค้า
+                        </h4>
+                        <span className="text-xs text-green-700 bg-green-50 font-bold px-3 py-1 rounded-full border border-green-200">
+                          ร้านค้าโอนเงินแล้ว
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-4">
+                        {refundSlips.map((s) => (
+                          <div
+                            key={s.id}
+                            onClick={() => window.open(`${API_BASE_URL}/orders/${orderId}/refund-slips/${s.id}/file`, "_blank")}
+                            className="cursor-pointer group relative rounded-xl overflow-hidden border border-gray-200 shadow-sm max-w-xs"
+                          >
+                            <img
+                              src={`${API_BASE_URL}/orders/${orderId}/refund-slips/${s.id}/file`}
+                              alt="Refund Slip"
+                              className="w-48 h-48 object-cover group-hover:scale-105 transition"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
+                              กดเพื่อดูภาพเต็ม
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={handleConfirmRefundReceived}
+                          disabled={isConfirmingRefund}
+                          className="py-3 px-8 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full text-sm transition shadow-md flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {isConfirmingRefund ? (
+                            <>
+                              <i className="fa-solid fa-spinner fa-spin"></i> กำลังยืนยัน...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fa-solid fa-check"></i> ยืนยันได้รับเงินคืนเรียบร้อยแล้ว
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-white/80 rounded-2xl p-5 border border-dashed border-purple-200 text-center">
+                      <i className="fa-solid fa-hourglass-half text-2xl text-purple-400 mb-2"></i>
+                      <p className="text-sm font-bold text-purple-900">รอร้านค้าดำเนินการโอนเงินและแนบสลิป</p>
+                      <p className="text-xs text-purple-600 mt-1">เมื่อร้านค้าแนบสลิปแล้ว ท่านจะสามารถตรวจสอบและกดยืนยันการรับเงินได้ที่นี่</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {order.status === "REFUNDED" && (
+            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-3xl p-8 text-center shadow-sm">
+              <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600 text-4xl shadow-sm border border-emerald-100">
+                <i className="fa-solid fa-circle-check"></i>
+              </div>
+              <h3 className="text-2xl font-black text-emerald-900 mb-2">คืนเงินเรียบร้อยแล้ว (REFUNDED)</h3>
+              <p className="text-sm text-emerald-700 font-medium mb-4">กระบวนการคืนเงินสำหรับคำสั่งซื้อนี้เสร็จสิ้นสมบูรณ์แล้ว</p>
+              {refundSlips.length > 0 && (
+                <div className="flex justify-center mt-4">
+                  <div
+                    onClick={() => window.open(`${API_BASE_URL}/orders/${orderId}/refund-slips/${refundSlips[refundSlips.length - 1].id}/file`, "_blank")}
+                    className="cursor-pointer group relative rounded-xl overflow-hidden border border-emerald-200 shadow-sm max-w-xs"
+                  >
+                    <img
+                      src={`${API_BASE_URL}/orders/${orderId}/refund-slips/${refundSlips[refundSlips.length - 1].id}/file`}
+                      alt="Refund Slip"
+                      className="w-48 h-48 object-cover group-hover:scale-105 transition"
+                    />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
+                      กดเพื่อดูสลิปคืนเงิน
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {order.status === "FROZEN" && (
+            <div className="bg-cyan-50 border-2 border-cyan-200 rounded-3xl p-8 text-center shadow-sm">
+              <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-4 text-cyan-600 text-4xl shadow-sm border border-cyan-100">
+                <i className="fa-solid fa-snowflake animate-pulse"></i>
+              </div>
+              <h3 className="text-2xl font-black text-cyan-900 mb-2">คำสั่งซื้อถูกระงับชั่วคราว (FROZEN)</h3>
+              <p className="text-sm text-cyan-700 font-medium">คำสั่งซื้อนี้อยู่ระหว่างการตรวจสอบโดยผู้ดูแลระบบชุมชน หากตรวจสอบเสร็จสิ้นระบบจะแจ้งเตือนให้ทราบ</p>
+            </div>
+          )}
         </div>
 
         {/* Order Details Accordions / Blocks */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-8">
-          <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500">
-              <i className="fa-solid fa-store text-xs"></i>
+        <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 overflow-hidden mb-6 sm:mb-8">
+          <div className="p-3.5 sm:p-5 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2.5 sm:gap-3">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-500 shadow-2xs">
+              <i className="fa-solid fa-store text-[11px] sm:text-xs"></i>
             </div>
-            <span className="font-bold text-gray-800 text-lg">{order.shopName}</span>
+            <span className="font-bold text-gray-800 text-sm sm:text-lg">{order.shopName}</span>
           </div>
-          <div className="divide-y divide-gray-50 p-2">
+          <div className="divide-y divide-gray-50 p-1 sm:p-2">
             {order.items.map(item => (
-              <div key={item.id} className="p-4 md:p-6 flex gap-5">
+              <div key={item.id} className="p-3 sm:p-4 md:p-6 flex gap-3 sm:gap-5 items-start">
                 <img 
                   src={item.imageAtPurchase} 
                   onError={(e) => {
                     (e.target as HTMLImageElement).src = getProductFallbackImage(item.productNameAtPurchase);
                   }}
-                  className="w-24 h-24 object-cover rounded-2xl border border-gray-100 flex-shrink-0 shadow-sm" 
+                  className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 object-cover rounded-xl sm:rounded-2xl border border-gray-100 flex-shrink-0 shadow-2xs" 
                   alt={item.productNameAtPurchase} 
                 />
-                <div className="flex-grow min-w-0 flex flex-col justify-center">
-                  <h4 className="font-bold text-base text-gray-800 line-clamp-2 mb-1">{item.productNameAtPurchase}</h4>
-                  <p className="text-xs text-gray-500 font-medium mb-auto">ตัวเลือก: <span className="bg-gray-50 px-2 py-1 rounded-lg border border-gray-100 inline-block mt-1">{item.variantNameAtPurchase}</span></p>
-                  <div className="flex justify-between items-end mt-3">
-                    <span className="font-black text-[#16A085] text-lg">{formatPrice(item.priceAtPurchaseMinor)}</span>
-                    <span className="text-sm text-gray-500 font-bold bg-gray-50 px-3 py-1 rounded-lg">x {item.qty}</span>
+                <div className="flex-grow min-w-0 flex flex-col justify-between self-stretch">
+                  <h4 className="font-bold text-xs sm:text-base text-gray-800 line-clamp-2 mb-1">{item.productNameAtPurchase}</h4>
+                  <p className="text-[11px] sm:text-xs text-gray-500 font-medium mb-auto">ตัวเลือก: <span className="bg-gray-50 px-2 py-0.5 rounded-lg border border-gray-100 inline-block mt-0.5">{item.variantNameAtPurchase}</span></p>
+                  <div className="flex justify-between items-end mt-2 sm:mt-3">
+                    <span className="font-black text-[#16A085] text-sm sm:text-lg">{formatPrice(item.priceAtPurchaseMinor)}</span>
+                    <span className="text-xs sm:text-sm text-gray-500 font-bold bg-gray-50 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-lg">x {item.qty}</span>
                   </div>
                 </div>
               </div>
@@ -581,32 +922,32 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
-            <h3 className="font-bold text-gray-800 mb-5 flex items-center gap-3 text-lg">
-              <div className="w-10 h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center">
-                <i className="fa-solid fa-location-dot"></i>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-8 sm:mb-10">
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-6 md:p-8">
+            <h3 className="font-bold text-gray-800 mb-3.5 sm:mb-5 flex items-center gap-2.5 sm:gap-3 text-base sm:text-lg">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-red-50 text-red-500 flex items-center justify-center flex-shrink-0">
+                <i className="fa-solid fa-location-dot text-sm sm:text-base"></i>
               </div>
               ที่อยู่จัดส่ง 
-              <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-1 rounded-lg ml-auto font-bold uppercase tracking-wider">Snapshot</span>
+              <span className="text-[9px] sm:text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 sm:py-1 rounded-lg ml-auto font-bold uppercase tracking-wider">Snapshot</span>
             </h3>
-            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-              <p className="font-black text-gray-800 text-base mb-1">{order.shippingAddress.recipientName} <span className="text-gray-500 font-medium ml-2 text-sm">| {order.shippingAddress.phone}</span></p>
-              <p className="text-sm text-gray-600 leading-relaxed font-medium mt-2">
+            <div className="p-3 sm:p-4 bg-gray-50 rounded-xl sm:rounded-2xl border border-gray-100">
+              <p className="font-black text-gray-800 text-sm sm:text-base mb-1">{order.shippingAddress.recipientName} <span className="text-gray-500 font-medium ml-1 sm:ml-2 text-xs sm:text-sm">| {order.shippingAddress.phone}</span></p>
+              <p className="text-xs sm:text-sm text-gray-600 leading-relaxed font-medium mt-1.5 sm:mt-2">
                 {order.shippingAddress.addressLine} ต.{order.shippingAddress.subDistrict} อ.{order.shippingAddress.district} <br />
                 จ.{order.shippingAddress.province} {order.shippingAddress.postalCode}
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 md:p-8">
-            <h3 className="font-bold text-gray-800 mb-5 flex items-center gap-3 text-lg">
-              <div className="w-10 h-10 rounded-full bg-[#D4F1BB]/50 text-[#16A085] flex items-center justify-center">
-                <i className="fa-solid fa-receipt text-lg"></i>
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-gray-100 p-4 sm:p-6 md:p-8">
+            <h3 className="font-bold text-gray-800 mb-3.5 sm:mb-5 flex items-center gap-2.5 sm:gap-3 text-base sm:text-lg">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#D4F1BB]/50 text-[#16A085] flex items-center justify-center flex-shrink-0">
+                <i className="fa-solid fa-receipt text-sm sm:text-base"></i>
               </div>
               สรุปยอดเงิน
             </h3>
-            <div className="space-y-3 text-sm font-medium mb-5 border-b-2 border-gray-100 border-dashed pb-5">
+            <div className="space-y-2.5 sm:space-y-3 text-xs sm:text-sm font-medium mb-4 sm:mb-5 border-b-2 border-gray-100 border-dashed pb-4 sm:pb-5">
               <div className="flex justify-between items-center text-gray-600">
                 <span>ยอดรวมสินค้า</span>
                 <span className="text-gray-800 font-bold">{formatPrice(itemsTotal)}</span>
@@ -629,13 +970,13 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
                 {order.shippingCostMinor !== undefined ? (
                   <span className="text-gray-800 font-bold">{formatPrice(order.shippingCostMinor)}</span>
                 ) : (
-                  <span className="text-yellow-600 font-bold bg-yellow-50 px-2 py-1 rounded-lg text-xs">รอร้านค้าแจ้ง</span>
+                  <span className="text-yellow-600 font-bold bg-yellow-50 px-2 py-0.5 sm:py-1 rounded-lg text-[11px] sm:text-xs">รอร้านค้าแจ้ง</span>
                 )}
               </div>
             </div>
             <div className="flex justify-between items-end font-bold">
-              <span className="text-gray-800">ยอดรวมทั้งสิ้น</span>
-              <span className="text-[#16A085] text-3xl font-black block leading-none">
+              <span className="text-gray-800 text-xs sm:text-sm">ยอดรวมทั้งสิ้น</span>
+              <span className="text-[#16A085] text-2xl sm:text-3xl font-black block leading-none">
                 {order.totalAmountMinor ? formatPrice(order.totalAmountMinor) : "-"}
               </span>
             </div>
@@ -643,8 +984,8 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
         </div>
 
         <div className="text-center">
-          <Link href={`/chat`} className="inline-flex items-center justify-center gap-3 bg-white border-2 border-[#16A085]/30 text-[#16A085] hover:border-[#16A085] hover:bg-[#D4F1BB]/10 font-bold py-4 px-10 rounded-full transition-all shadow-sm hover:shadow-md">
-            <i className="fa-regular fa-message text-lg"></i> แชทติดต่อร้านค้า
+          <Link href={`/chat`} className="inline-flex items-center justify-center gap-2 sm:gap-3 bg-white border-2 border-[#16A085]/30 text-[#16A085] hover:border-[#16A085] hover:bg-[#D4F1BB]/10 font-bold py-3 sm:py-4 px-6 sm:px-10 rounded-full text-xs sm:text-base transition-all shadow-xs hover:shadow active:scale-95">
+            <i className="fa-regular fa-message text-sm sm:text-lg"></i> แชทติดต่อร้านค้า
           </Link>
         </div>
 
@@ -657,7 +998,7 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
             <button 
               type="button"
               onClick={() => setSelectedQrPreview(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center cursor-pointer"
             >
               <i className="fa-solid fa-xmark"></i>
             </button>
@@ -671,7 +1012,7 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
             <button 
               type="button"
               onClick={() => setSelectedQrPreview(null)}
-              className="w-full bg-[#16A085] hover:bg-[#117A65] text-white py-3 rounded-full font-bold text-sm shadow-md transition"
+              className="w-full bg-[#16A085] hover:bg-[#117A65] text-white py-3 rounded-full font-bold text-sm shadow-md transition active:scale-95 cursor-pointer"
             >
               ปิดหน้าต่าง
             </button>
@@ -680,6 +1021,7 @@ export default function OrderDetailClient({ orderId }: { orderId: string }) {
       )}
 
       <Footer />
+      <MobileNav />
     </div>
   );
 }

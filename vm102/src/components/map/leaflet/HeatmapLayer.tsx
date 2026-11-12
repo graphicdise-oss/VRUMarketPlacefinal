@@ -15,7 +15,7 @@ export default function HeatmapLayer({ points }: HeatmapLayerProps) {
   useEffect(() => {
     if (!map || typeof window === "undefined") return;
 
-    let heatLayer: any = null;
+    let heatLayer: L.HeatLayer | null = null;
     let isCancelled = false;
 
     import("leaflet.heat").then(() => {
@@ -42,7 +42,6 @@ export default function HeatmapLayer({ points }: HeatmapLayerProps) {
         },
       };
 
-      // @ts-ignore
       heatLayer = L.heatLayer(heatData, options).addTo(map);
     }).catch((err) => {
       console.warn("Leaflet.heat failed to load:", err);

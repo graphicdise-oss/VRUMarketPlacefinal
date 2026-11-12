@@ -1,5 +1,57 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DashboardRangeDto, SalesDto, SalesTotalsDto } from './sales.dto.js';
+
+export class CategorySalesDto {
+  @ApiProperty()
+  categoryId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiPropertyOptional()
+  icon?: string | null;
+
+  @ApiPropertyOptional()
+  color?: string | null;
+
+  @ApiProperty({ description: 'Total sales in Baht' })
+  totalSales!: number;
+
+  @ApiProperty({ description: 'Total units sold' })
+  totalQuantity!: number;
+}
+
+export class TopProductDto {
+  @ApiProperty()
+  productId!: string;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  shopName!: string;
+
+  @ApiProperty()
+  communityName!: string;
+
+  @ApiProperty()
+  categoryName!: string;
+
+  @ApiPropertyOptional()
+  categoryIcon?: string | null;
+
+  @ApiPropertyOptional()
+  categoryColor?: string | null;
+
+  @ApiProperty({ description: 'Total sales in Baht' })
+  totalSales!: number;
+
+  @ApiProperty({ description: 'Total units sold' })
+  totalSold!: number;
+
+  @ApiPropertyOptional()
+  imageId?: string | null;
+}
 
 /**
  * Waiting right now, whatever the range — each the length of the matching admin list, the caller's
@@ -100,4 +152,10 @@ export class AdminDashboardDto {
 
   @ApiProperty({ type: DashboardFiguresDto, description: 'Every community above, added up — with the day-by-day sales series.' })
   total!: DashboardFiguresDto;
+
+  @ApiPropertyOptional({ type: [CategorySalesDto] })
+  categorySales?: CategorySalesDto[];
+
+  @ApiPropertyOptional({ type: [TopProductDto] })
+  topProducts?: TopProductDto[];
 }

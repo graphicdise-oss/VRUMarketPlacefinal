@@ -84,7 +84,7 @@ function isoDateOf(ms: number): string {
 }
 
 function instantAt(ms: number): Date {
-  // eslint-disable-next-line no-restricted-syntax -- not a wall-clock read; every caller derives `ms` from `Clock` or from a date it was given
+  // Not a wall-clock read; every caller derives `ms` from `Clock` or from a date it was given.
   return new Date(ms);
 }
 

@@ -1,5 +1,4 @@
-import { apiFetch, ApiRequestError } from './core';
-import { ApiError } from '@/types';
+import { apiFetch } from './core';
 
 export interface Article {
   id: string;
@@ -41,6 +40,15 @@ export const articleApi = {
 
   getById: async (id: string): Promise<Article> => {
     return apiFetch<Article>(`/articles/${id}`);
+  },
+
+  uploadImage: async (file: File): Promise<{ url: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiFetch<{ url: string }>('/articles/upload', {
+      method: 'POST',
+      body: formData,
+    });
   },
 
   create: async (data: CreateArticleDto): Promise<Article> => {

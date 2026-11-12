@@ -7,9 +7,11 @@ import Link from "next/link";
 import { Product, ProductVariant } from "@/types";
 import { useCart } from "@/components/cart/CartProvider";
 import { useToast } from "@/components/ui/Toast";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, getErrorMessage } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { useRouter } from "next/navigation";
+import ProductDescription from "@/components/product/ProductDescription";
+import ProductImageLightbox from "@/components/product/ProductImageLightbox";
 
 interface ProductModalProps {
   product: Product;
@@ -19,16 +21,23 @@ interface ProductModalProps {
 export default function ProductModal({ product, onClose }: ProductModalProps) {
   const [qty, setQty] = useState(1);
   const [activeImage, setActiveImage] = useState(0);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant>(product.variants[0]);
   const { addToCart } = useCart();
   const { showToast } = useToast();
   const { user, isAuthenticated } = useAuth();
   const router = useRouter();
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!isAuthenticated) {
       showToast("กรุณาเข้าสู่ระบบเพื่อสั่งซื้อสินค้า");
       router.push("/login");
+      return;
+    }
+
+    if (!user?.emailVerified) {
+      showToast("กรุณายืนยันอีเมลของคุณก่อนเพิ่มสินค้าลงตะกร้า", "error");
+      router.push("/verify-email");
       return;
     }
 
@@ -36,24 +45,29 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
       showToast("ไม่สามารถทำรายการสั่งซื้อได้เนื่องจากคุณอยู่ในสิทธิ์ผู้ดูแลระบบ", "error");
       return;
     }
-    
+
     if (selectedVariant.stock < qty) {
-      showToast("สต็อกไม่พอ กรุณาลดจำนวน");
+      showToast("สต็อกไม่พอ กรุณาลดจำนวน", "error");
       return;
     }
-    addToCart({
-      productId: product.id,
-      variantId: selectedVariant.id,
-      variantName: selectedVariant.name,
-      name: product.name,
-      priceMinor: selectedVariant.priceMinor,
-      image: product.images[0],
-      shopId: product.shopId,
-      shopName: product.shopName,
-      qty,
-    });
-    showToast(`เพิ่ม "${product.name}" (${selectedVariant.name}) ${qty} ชิ้นลงตะกร้าแล้ว`);
-    onClose();
+
+    try {
+      await addToCart({
+        productId: product.id,
+        variantId: selectedVariant.id,
+        variantName: selectedVariant.name,
+        name: product.name,
+        priceMinor: selectedVariant.priceMinor,
+        image: product.images[0],
+        shopId: product.shopId,
+        shopName: product.shopName,
+        qty,
+      });
+      showToast(`เพิ่ม "${product.name}" (${selectedVariant.name}) ${qty} ชิ้นลงตะกร้าแล้ว`);
+      onClose();
+    } catch (err: unknown) {
+      showToast(getErrorMessage(err, "ไม่สามารถเพิ่มสินค้าลงตะกร้าได้"), "error");
+    }
   };
 
   return (
@@ -68,8 +82,17 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
         <div className="flex flex-col md:flex-row overflow-y-auto">
           {/* Left: Image Section */}
           <div className="md:w-1/2 p-6 bg-gray-50 flex flex-col">
-            <div className="relative w-full aspect-square rounded-2xl overflow-hidden mb-4 shadow-sm group">
+            <div
+              onClick={() => setIsLightboxOpen(true)}
+              className="relative w-full aspect-square rounded-2xl overflow-hidden mb-4 shadow-sm group cursor-zoom-in"
+              title="คลิกเพื่อดูภาพขยายแบบเต็มจอ"
+            >
               <Image src={product.images[activeImage] || '/placeholder.png'} alt={product.name} fill className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" sizes="(max-width: 768px) 100vw, 50vw" />
+              {/* Zoom hint overlay */}
+              <div className="absolute top-2.5 right-2.5 z-10 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 backdrop-blur-md text-white text-[10px] font-semibold px-2.5 py-1 rounded-full shadow-md flex items-center gap-1.5 pointer-events-none">
+                <i className="fa-solid fa-magnifying-glass-plus text-xs text-[#D4F1BB]"></i>
+                <span>คลิกดูภาพขยาย</span>
+              </div>
               {product.images.length > 1 && (
                 <div className="absolute bottom-2.5 right-2.5 bg-black/60 backdrop-blur-sm text-white text-[10px] font-semibold px-2 py-0.5 rounded-full pointer-events-none">
                   {activeImage + 1} / {product.images.length}
@@ -86,11 +109,10 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
                       type="button"
                       onClick={() => setActiveImage(idx)}
                       onMouseEnter={() => setActiveImage(idx)}
-                      className={`relative w-14 h-14 flex-shrink-0 rounded-xl overflow-hidden border-2 transition-all duration-200 cursor-pointer ${
-                        isActive
+                      className={`relative w-14 h-14 flex-shrink-0 rounded-xl overflow-hidden border-2 transition-all duration-200 cursor-pointer ${isActive
                           ? "border-[#16A085] shadow-md ring-2 ring-[#16A085]/20 scale-105"
                           : "border-gray-200 opacity-60 hover:opacity-100 hover:border-gray-400"
-                      }`}
+                        }`}
                     >
                       <Image src={img || '/placeholder.png'} alt={`${product.name} ${idx + 1}`} fill className="object-cover" sizes="56px" />
                     </button>
@@ -117,7 +139,7 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
             </div>
 
             <h4 className="font-bold text-2xl text-gray-800 mb-2 leading-tight">{product.name}</h4>
-            
+
             <div className="flex items-center gap-4 text-sm text-gray-500 mb-4 pb-4 border-b border-gray-100">
               <span className="flex items-center gap-1"><i className="fa-solid fa-store text-gray-400"></i> {product.shopName}</span>
               <span className="text-gray-300">|</span>
@@ -146,11 +168,10 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
                     <button
                       key={variant.id}
                       onClick={() => { setSelectedVariant(variant); setQty(1); }}
-                      className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all ${
-                        selectedVariant.id === variant.id
+                      className={`px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all ${selectedVariant.id === variant.id
                           ? "border-[#16A085] bg-[#D4F1BB]/20 text-[#16A085] shadow-sm"
                           : "border-gray-100 bg-white text-gray-500 hover:border-[#16A085]/50"
-                      } ${variant.stock === 0 ? "opacity-40 cursor-not-allowed" : ""}`}
+                        } ${variant.stock === 0 ? "opacity-40 cursor-not-allowed" : ""}`}
                       disabled={variant.stock === 0}
                     >
                       {variant.name}
@@ -172,9 +193,14 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
             </div>
 
             {/* Description (Truncated/Scrollable if too long) */}
-            <div className="mb-6 text-sm text-gray-600 flex-grow max-h-24 overflow-y-auto hide-scrollbar">
+            <div className="mb-6 text-sm text-gray-600 flex-grow max-h-28 overflow-y-auto hide-scrollbar">
               <span className="font-bold text-gray-700 block mb-1">รายละเอียดสินค้า:</span>
-              {product.description || "ผลิตภัณฑ์คุณภาพจากชุมชน ผลิตด้วยความใส่ใจและใช้วัสดุจากธรรมชาติ เพื่อสร้างความยั่งยืนให้กับท้องถิ่น"}
+              <ProductDescription
+                description={
+                  product.description ||
+                  "ผลิตภัณฑ์คุณภาพจากชุมชน ผลิตด้วยความใส่ใจและใช้วัสดุจากธรรมชาติ เพื่อสร้างความยั่งยืนให้กับท้องถิ่น"
+                }
+              />
             </div>
 
             {/* Actions */}
@@ -187,7 +213,7 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
                 <i className="fa-solid fa-cart-plus text-lg"></i> เพิ่มลงตะกร้า
               </button>
               <div className="flex gap-3">
-                <Link href={`/chat`} className="flex-1 bg-white border-2 border-gray-200 text-gray-600 hover:border-[#16A085] hover:text-[#16A085] rounded-full text-sm font-bold py-3 flex items-center justify-center gap-2 transition text-center shadow-sm hover:shadow-md">
+                <Link href={`/chat?shopId=${product.shopId}`} className="flex-1 bg-white border-2 border-gray-200 text-gray-600 hover:border-[#16A085] hover:text-[#16A085] rounded-full text-sm font-bold py-3 flex items-center justify-center gap-2 transition text-center shadow-sm hover:shadow-md">
                   <i className="fa-regular fa-message text-lg"></i> แชท
                 </Link>
                 <Link href={`/products/${product.id}`} className="flex-1 bg-gray-100 border-2 border-gray-100 text-gray-600 hover:border-gray-300 hover:text-gray-800 rounded-full text-sm font-bold py-3 flex items-center justify-center gap-2 transition text-center shadow-sm hover:shadow-md">
@@ -198,6 +224,15 @@ export default function ProductModal({ product, onClose }: ProductModalProps) {
           </div>
         </div>
       </div>
+
+      {/* Shopee-style Lightbox */}
+      <ProductImageLightbox
+        isOpen={isLightboxOpen}
+        onClose={() => setIsLightboxOpen(false)}
+        images={product.images}
+        initialIndex={activeImage}
+        productTitle={product.name}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import Link from "next/link";
 import { shopApi, shopPaymentApi, paymentChannelApi, communityApi, CommunityDto, MyShopDto } from "@/lib/api";
@@ -20,6 +20,11 @@ const MapPicker = dynamic(() => import("@/components/map/MapPicker"), {
 export default function RegisterShopClient() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromProfile = searchParams ? searchParams.get("from") === "profile" : false;
+  const backHref = fromProfile ? "/profile" : "/";
+  const backLabel = fromProfile ? "กลับหน้าข้อมูลส่วนตัว" : "กลับหน้าหลัก";
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [existingShop, setExistingShop] = useState<MyShopDto | null>(null);
@@ -240,8 +245,14 @@ export default function RegisterShopClient() {
           </div>
           <h2 className="text-2xl font-black text-gray-800 mb-2">ต้องเข้าสู่ระบบก่อน</h2>
           <p className="text-gray-500 mb-6">คุณต้องเข้าสู่ระบบสมาชิกเพื่อลงทะเบียนเปิดร้านค้าในระบบ</p>
-          <Link href="/login" className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md">
+          <Link href="/login" className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md mb-3">
             เข้าสู่ระบบ / สมัครสมาชิก
+          </Link>
+          <Link
+            href={backHref}
+            className="block text-center text-sm font-bold text-gray-500 hover:text-gray-700 py-1 transition"
+          >
+            {backLabel}
           </Link>
         </div>
       </div>
@@ -261,10 +272,16 @@ export default function RegisterShopClient() {
           </p>
           <button
             onClick={() => router.push("/seller")}
-            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md"
+            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md mb-3"
           >
             ไปที่แผงควบคุมร้านค้า (Seller Portal)
           </button>
+          <Link
+            href={backHref}
+            className="block text-center text-sm font-bold text-gray-500 hover:text-gray-700 py-1 transition"
+          >
+            {backLabel}
+          </Link>
         </div>
       </div>
     );
@@ -287,10 +304,16 @@ export default function RegisterShopClient() {
           </div>
           <button
             onClick={() => router.push("/seller")}
-            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md"
+            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md mb-3"
           >
             ไปที่แผงควบคุมร้านค้า (Seller Portal)
           </button>
+          <Link
+            href={backHref}
+            className="block text-center text-sm font-bold text-gray-500 hover:text-gray-700 py-1 transition"
+          >
+            {backLabel}
+          </Link>
         </div>
       </div>
     );
@@ -316,10 +339,16 @@ export default function RegisterShopClient() {
               setFormData((prev) => ({ ...prev, shopName: existingShop.name }));
               setExistingShop(null);
             }}
-            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md"
+            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md mb-3"
           >
             <i className="fa-solid fa-pen-to-square mr-2"></i> แก้ไขข้อมูลและยื่นคำขอใหม่
           </button>
+          <Link
+            href={backHref}
+            className="block text-center text-sm font-bold text-gray-500 hover:text-gray-700 py-1 transition"
+          >
+            {backLabel}
+          </Link>
         </div>
       </div>
     );
@@ -349,10 +378,16 @@ export default function RegisterShopClient() {
           </div>
           <button
             onClick={() => router.push("/seller")}
-            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md"
+            className="btn-minimal block w-full py-3.5 rounded-full font-bold shadow-md mb-3"
           >
             ไปที่แผงควบคุมร้านค้า (Seller Portal)
           </button>
+          <Link
+            href={backHref}
+            className="block text-center text-sm font-bold text-gray-500 hover:text-gray-700 py-1 transition"
+          >
+            {backLabel}
+          </Link>
         </div>
       </div>
     );
@@ -363,8 +398,8 @@ export default function RegisterShopClient() {
       <div className="max-w-3xl mx-auto px-4">
         {/* Header Breadcrumb */}
         <div className="mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 text-gray-500 hover:text-[#16A085] font-bold text-sm transition group">
-            <i className="fa-solid fa-arrow-left transition-transform group-hover:-translate-x-1"></i> กลับหน้าหลัก
+          <Link href={backHref} className="inline-flex items-center gap-2 text-gray-500 hover:text-[#16A085] font-bold text-sm transition group">
+            <i className="fa-solid fa-arrow-left transition-transform group-hover:-translate-x-1"></i> {backLabel}
           </Link>
           <div className="mt-4 flex items-center justify-between">
             <div>
@@ -746,7 +781,7 @@ export default function RegisterShopClient() {
             </p>
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <Link
-                href="/"
+                href={backHref}
                 className="w-1/2 sm:w-auto text-center px-6 py-3 rounded-full font-bold text-gray-600 hover:bg-gray-100 transition text-sm"
               >
                 ยกเลิก

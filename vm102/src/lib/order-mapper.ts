@@ -1,8 +1,7 @@
 import type { Order, OrderItem, OrderStatus } from "@/types";
 import type { OrderDto, OrderItemDto } from "@/lib/api-modules/order";
 import { getProductFallbackImage } from "@/lib/product-mapper";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1";
+import { API_BASE_URL } from "@/lib/api-modules/core";
 
 export function mapOrderItemDto(i: OrderItemDto): OrderItem {
   const fallback = getProductFallbackImage(i.productNameAtPurchase);
@@ -14,7 +13,7 @@ export function mapOrderItemDto(i: OrderItemDto): OrderItem {
     variantNameAtPurchase: i.variantNameAtPurchase,
     priceAtPurchaseMinor: i.priceAtPurchase,
     qty: i.quantity,
-    imageAtPurchase: i.productId ? `${API_URL}/products/${i.productId}/images/first` : fallback,
+    imageAtPurchase: i.productId ? `${API_BASE_URL}/products/${i.productId}/images/first` : fallback,
   };
 }
 
@@ -51,5 +50,11 @@ export function mapOrderDto(o: OrderDto): Order {
     shippingProvider: o.shippingCarrierName ?? undefined,
     trackingNumber: o.trackingNumber ?? undefined,
     rejectionReason: o.cancelReason ?? undefined,
+    refundOrderedAt: o.refundOrderedAt,
+    refundAccountType: o.refundAccountType,
+    refundBankName: o.refundBankName,
+    refundBankAccountNumber: o.refundBankAccountNumber,
+    refundBankAccountName: o.refundBankAccountName,
+    refundPromptPayId: o.refundPromptPayId,
   };
 }

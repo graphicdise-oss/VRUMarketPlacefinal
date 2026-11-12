@@ -50,7 +50,12 @@ export class CategoryService {
   }
 
   /** Super admin only — enforced by `@RequiresSuperAdmin()` on the route, not re-checked here. */
-  async create(actorUserId: string, name: string): Promise<CategoryDto> {
+  async create(
+    actorUserId: string,
+    name: string,
+    icon?: string,
+    color?: string,
+  ): Promise<CategoryDto> {
     const existing = await this.prisma.category.findUnique({
       where: { name },
       select: { id: true },
@@ -68,7 +73,15 @@ export class CategoryService {
     try {
       const category = await this.prisma.$transaction(async (tx) => {
         const created = await tx.category.create({
-          data: { id: newId(), name, isActive: true, createdAt: now, updatedAt: now },
+          data: {
+            id: newId(),
+            name,
+            icon: icon || null,
+            color: color || null,
+            isActive: true,
+            createdAt: now,
+            updatedAt: now,
+          },
         });
 
         await this.audit.record(
@@ -97,6 +110,8 @@ export class CategoryService {
     categoryId: string,
     name: string,
     isActive: boolean,
+    icon?: string,
+    color?: string,
   ): Promise<CategoryDto> {
     const existing = await this.prisma.category.findUnique({ where: { id: categoryId } });
     if (existing === null) {
@@ -117,7 +132,13 @@ export class CategoryService {
       const updated = await this.prisma.$transaction(async (tx) => {
         const result = await tx.category.update({
           where: { id: categoryId },
-          data: { name, isActive, updatedAt: this.clock.now() },
+          data: {
+            name,
+            isActive,
+            ...(icon !== undefined ? { icon: icon || null } : {}),
+            ...(color !== undefined ? { color: color || null } : {}),
+            updatedAt: this.clock.now(),
+          },
         });
 
         await this.audit.record(

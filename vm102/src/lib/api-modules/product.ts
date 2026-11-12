@@ -3,14 +3,16 @@ import { api } from "./core";
 export interface CategoryDto {
   id: string;
   name: string;
+  icon?: string | null;
+  color?: string | null;
   isActive: boolean;
   createdAt: string;
 }
 
 export const categoryApi = {
   list: (cursor?: string) => api.get<{ items: CategoryDto[]; nextCursor?: string; hasMore: boolean }>(`/categories?limit=50${cursor ? `&cursor=${cursor}` : ''}`),
-  create: (name: string) => api.post<CategoryDto>('/categories', { name }),
-  update: (id: string, data: { name?: string; isActive?: boolean }) => api.patch<CategoryDto>(`/categories/${id}`, data),
+  create: (name: string, icon?: string, color?: string) => api.post<CategoryDto>('/categories', { name, icon, color }),
+  update: (id: string, data: { name?: string; isActive?: boolean; icon?: string; color?: string }) => api.patch<CategoryDto>(`/categories/${id}`, data),
 };
 
 export interface ProductVariantDto {
@@ -90,4 +92,12 @@ export const productApi = {
     return api.get<{ items: PublicProductDto[]; nextCursor?: string }>(`/products/search?${query.toString()}`);
   },
   getPublicById: (productId: string) => api.get<PublicProductDto>(`/products/${productId}`),
+  getTrendingKeywords: async (): Promise<string[]> => {
+    try {
+      const res = await api.get<{ keywords: string[] }>("/products/search/trending");
+      return res?.keywords || [];
+    } catch {
+      return [];
+    }
+  },
 };

@@ -205,6 +205,12 @@ export interface Order {
   shippingProvider?: string;
   trackingNumber?: string;
   rejectionReason?: string;          // เหตุผลปฏิเสธค่าส่ง
+  refundOrderedAt?: string | null;
+  refundAccountType?: "BANK_TRANSFER" | "PROMPTPAY" | null;
+  refundBankName?: string | null;
+  refundBankAccountNumber?: string | null;
+  refundBankAccountName?: string | null;
+  refundPromptPayId?: string | null;
   // นาฬิกาสามเรือน
   shippingQuoteDeadline?: string;    // เรือนที่ 1
   paymentDeadline?: string;          // เรือนที่ 2

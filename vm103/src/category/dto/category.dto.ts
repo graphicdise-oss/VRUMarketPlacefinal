@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { Category } from '@prisma/client';
 
 /**
@@ -12,6 +12,12 @@ export class CategoryDto {
 
   @ApiProperty()
   name!: string;
+
+  @ApiPropertyOptional()
+  icon?: string | null;
+
+  @ApiPropertyOptional()
+  color?: string | null;
 
   @ApiProperty({
     description:
@@ -27,6 +33,8 @@ export class CategoryDto {
     const dto = new CategoryDto();
     dto.id = category.id;
     dto.name = category.name;
+    dto.icon = category.icon;
+    dto.color = category.color;
     dto.isActive = category.isActive;
     dto.createdAt = category.createdAt;
 

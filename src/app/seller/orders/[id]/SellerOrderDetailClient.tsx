@@ -7,9 +7,10 @@ import { formatPrice, getOrderStatusLabel, getOrderStatusColor, formatCountdown 
 import Breadcrumb from "@/components/ui/Breadcrumb";
 
 // Removed mock data
-import { sellerOrderApi, shippingCarrierApi, buyerOrderApi } from "@/lib/api";
+import { sellerOrderApi, shippingCarrierApi } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api-modules/core";
 import { shopDisputeApi } from "@/lib/api-modules/dispute";
-import type { ShippingCarrierDto } from "@/lib/api-modules/order";
+import type { ShippingCarrierDto, RefundSlipDto } from "@/lib/api-modules/order";
 import type { DisputeDto } from "@/lib/api-modules/dispute";
 import { mapOrderDto } from "@/lib/order-mapper";
 import { getProductFallbackImage } from "@/lib/product-mapper";
@@ -29,8 +30,37 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
   const [shippingSlipPreview, setShippingSlipPreview] = useState<string | null>(null);
   const [isSubmittingShip, setIsSubmittingShip] = useState(false);
   const [isUploadingAdditionalSlip, setIsUploadingAdditionalSlip] = useState(false);
+  const [refundSlips, setRefundSlips] = useState<RefundSlipDto[]>([]);
+  const [refundSlipFile, setRefundSlipFile] = useState<File | null>(null);
+  const [refundSlipPreview, setRefundSlipPreview] = useState<string | null>(null);
+  const [isUploadingRefundSlip, setIsUploadingRefundSlip] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [isCancellingOrder, setIsCancellingOrder] = useState(false);
+
+  const handleSellerCancelOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cancelReason.trim()) {
+      alert("กรุณาระบุเหตุผลในการยกเลิกคำสั่งซื้อ");
+      return;
+    }
+    setIsCancellingOrder(true);
+    try {
+      await sellerOrderApi.cancel(orderId, cancelReason.trim());
+      alert("ยกเลิกคำสั่งซื้อเรียบร้อยแล้ว");
+      setShowCancelModal(false);
+      setCancelReason("");
+      await fetchOrder();
+    } catch (err) {
+      console.error("Failed to cancel order", err);
+      alert("เกิดข้อผิดพลาดในการยกเลิกคำสั่งซื้อ: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsCancellingOrder(false);
+    }
+  };
   const shippingSlipInputRef = useRef<HTMLInputElement>(null);
   const additionalSlipInputRef = useRef<HTMLInputElement>(null);
+  const refundSlipInputRef = useRef<HTMLInputElement>(null);
 
   const fetchOrder = useCallback(async () => {
     try {
@@ -38,12 +68,17 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
       const apiOrder: Order = mapOrderDto(o);
       setOrder(apiOrder);
 
-      if (o.displayStatus === "PAYMENT_SUBMITTED" || o.displayStatus === "PAID" || o.displayStatus === "SHIPPED" || o.displayStatus === "COMPLETED") {
-        buyerOrderApi.getSlips(orderId).then(res => {
+      if (
+        o.status !== "AWAITING_SHIPPING_QUOTE" &&
+        o.status !== "AWAITING_PAYMENT" &&
+        o.displayStatus !== "AWAITING_SHIPPING_QUOTE" &&
+        o.displayStatus !== "AWAITING_PAYMENT"
+      ) {
+        sellerOrderApi.getSlips(orderId).then(res => {
           if (res && res.length > 0) {
             const slip = res[res.length - 1] || res[0]; 
             setCurrentSlipId(slip.id);
-            const slipUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1"}/orders/${orderId}/payment-slips/${slip.id}/file`;
+            const slipUrl = `${API_BASE_URL}/orders/${orderId}/payment-slips/${slip.id}/file`;
             setOrder(prev => prev ? { ...prev, slipImageUrl: slipUrl } : prev);
           }
         }).catch(console.error);
@@ -51,9 +86,20 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
         sellerOrderApi.getShippingSlips(orderId).then(res => {
           if (res && res.length > 0) {
             const slip = res[res.length - 1] || res[0];
-            const slipUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3000/api/v1"}/orders/${orderId}/shipping-slips/${slip.id}/file`;
+            const slipUrl = `${API_BASE_URL}/orders/${orderId}/shipping-slips/${slip.id}/file`;
             setOrder(prev => prev ? { ...prev, shippingSlipUrl: slipUrl } : prev);
           }
+        }).catch(console.error);
+      }
+
+      if (
+        o.status === "REFUND_ORDERED" ||
+        o.status === "REFUNDED" ||
+        o.displayStatus === "REFUND_ORDERED" ||
+        o.displayStatus === "REFUNDED"
+      ) {
+        sellerOrderApi.getRefundSlips(orderId).then(res => {
+          setRefundSlips(res || []);
         }).catch(console.error);
       }
 
@@ -171,6 +217,37 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
     }
   };
 
+  const handleRefundSlipFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setRefundSlipFile(file);
+      setRefundSlipPreview(URL.createObjectURL(file));
+    }
+  };
+
+  const handleUploadRefundSlip = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refundSlipFile) {
+      alert("กรุณาเลือกไฟล์สลิปหลักฐานการคืนเงิน");
+      return;
+    }
+    setIsUploadingRefundSlip(true);
+    try {
+      await sellerOrderApi.uploadRefundSlip(orderId, refundSlipFile);
+      alert("อัปโหลดสลิปหลักฐานการคืนเงินเรียบร้อยแล้ว รอผู้ซื้อกดยืนยันการรับเงิน");
+      setRefundSlipFile(null);
+      setRefundSlipPreview(null);
+      if (refundSlipInputRef.current) {
+        refundSlipInputRef.current.value = "";
+      }
+      await fetchOrder();
+    } catch (err) {
+      alert("เกิดข้อผิดพลาดในการอัปโหลดสลิปคืนเงิน: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setIsUploadingRefundSlip(false);
+    }
+  };
+
   if (!order) return <div className="min-h-screen bg-gray-50 flex items-center justify-center"><i className="fa-solid fa-spinner fa-spin text-4xl text-vru-blue"></i></div>;
 
   const itemsTotal = order.items.reduce((sum, i) => sum + (i.priceAtPurchaseMinor * i.qty), 0);
@@ -265,40 +342,61 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
 
               {/* ACTION: AWAITING_SHIPPING_QUOTE */}
               {order.status === "AWAITING_SHIPPING_QUOTE" && (
-                <form onSubmit={handleQuoteShipping} className="bg-blue-50 border border-blue-200 rounded-xl p-5">
-                  <h3 className="font-bold text-blue-800 mb-2"><i className="fa-solid fa-truck-fast mr-2"></i> ระบุค่าจัดส่ง</h3>
-                  <p className="text-sm text-blue-700 mb-4">ผู้ซื้อทำการสั่งซื้อแล้ว กรุณาคำนวณและระบุค่าจัดส่ง เพื่อให้ผู้ซื้อชำระเงิน</p>
-                  
-                  <div className="flex gap-3 mb-3">
-                    <div className="flex-grow">
-                      <div className="relative">
-                        <input 
-                          type="number" 
-                          min="0"
-                          step="1"
-                          required
-                          value={shippingCostInput}
-                          onChange={(e) => setShippingCostInput(e.target.value)}
-                          className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-lg font-bold" 
-                          placeholder="0"
-                        />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">บาท</span>
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-5">
+                  <form onSubmit={handleQuoteShipping}>
+                    <h3 className="font-bold text-blue-800 mb-2"><i className="fa-solid fa-truck-fast mr-2"></i> ระบุค่าจัดส่ง</h3>
+                    <p className="text-sm text-blue-700 mb-4">ผู้ซื้อทำการสั่งซื้อแล้ว กรุณาคำนวณและระบุค่าจัดส่ง เพื่อให้ผู้ซื้อชำระเงิน</p>
+                    
+                    <div className="flex gap-3 mb-3">
+                      <div className="flex-grow">
+                        <div className="relative">
+                          <input 
+                            type="number" 
+                            min="0"
+                            step="1"
+                            required
+                            value={shippingCostInput}
+                            onChange={(e) => setShippingCostInput(e.target.value)}
+                            className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-xl focus:ring-vru-blue focus:border-vru-blue text-lg font-bold" 
+                            placeholder="0"
+                          />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 font-bold">บาท</span>
+                        </div>
                       </div>
+                      <button type="submit" className="bg-vru-blue hover:bg-blue-600 text-white font-bold px-6 rounded-xl transition shadow-md whitespace-nowrap">
+                        ส่งให้ผู้ซื้อ
+                      </button>
                     </div>
-                    <button type="submit" className="bg-vru-blue hover:bg-blue-600 text-white font-bold px-6 rounded-xl transition shadow-md whitespace-nowrap">
-                      ส่งให้ผู้ซื้อ
+                    {order.shippingQuoteDeadline && <p className="text-xs text-red-500 font-bold">หมดเวลาใน: {formatCountdown(order.shippingQuoteDeadline)}</p>}
+                  </form>
+                  <div className="mt-4 pt-3 border-t border-blue-100 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">หากสินค้าหมดหรือไม่พร้อมจัดส่ง:</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelModal(true)}
+                      className="text-xs text-red-500 hover:text-red-700 font-bold hover:underline cursor-pointer"
+                    >
+                      <i className="fa-solid fa-xmark mr-1"></i> ยกเลิกคำสั่งซื้อนี้
                     </button>
                   </div>
-                  {order.shippingQuoteDeadline && <p className="text-xs text-red-500 font-bold">หมดเวลาใน: {formatCountdown(order.shippingQuoteDeadline)}</p>}
-                </form>
+                </div>
               )}
 
               {/* ACTION: AWAITING_PAYMENT */}
               {order.status === "AWAITING_PAYMENT" && (
-                <div className="text-center py-6">
+                <div className="text-center py-6 bg-white border border-gray-200 rounded-xl p-5">
                   <i className="fa-solid fa-hourglass-half text-4xl text-gray-300 mb-4 animate-pulse"></i>
                   <h3 className="font-bold text-gray-800 mb-1">รอผู้ซื้อชำระเงิน</h3>
                   <p className="text-sm text-gray-500">คุณได้แจ้งค่าจัดส่งไปแล้ว กรุณารอผู้ซื้อโอนเงินและอัปโหลดสลิป</p>
+                  <div className="mt-4 pt-3 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => setShowCancelModal(true)}
+                      className="text-xs text-red-500 hover:text-red-700 font-bold hover:underline cursor-pointer"
+                    >
+                      <i className="fa-solid fa-xmark mr-1"></i> ขอยกเลิกคำสั่งซื้อ (กรณีสินค้ามีปัญหา)
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -563,6 +661,186 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
                   </div>
                 </div>
               )}
+
+              {order.status === "REFUND_ORDERED" && (
+                <div className="space-y-6">
+                  <div className="bg-purple-50 border border-purple-200 rounded-2xl p-6 text-purple-900">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-purple-700 text-lg">
+                        <i className="fa-solid fa-hand-holding-dollar"></i>
+                      </div>
+                      <div>
+                        <h4 className="font-black text-lg text-purple-900">ต้องคืนเงินให้ผู้ซื้อ (REFUND_ORDERED)</h4>
+                        <p className="text-xs text-purple-700">ออเดอร์นี้มีคำสั่งให้คืนเงิน กรุณาโอนเงินคืนตามช่องทางของผู้ซื้อและอัปโหลดสลิป</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {order.refundAccountType ? (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
+                      <h5 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                        <i className="fa-solid fa-wallet text-purple-600"></i> บัญชีสำหรับรับเงินคืนของผู้ซื้อ
+                      </h5>
+                      <div className="bg-gray-50 p-4 rounded-xl space-y-2 text-sm">
+                        {order.refundAccountType === "PROMPTPAY" ? (
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-gray-400 block">พร้อมเพย์ (PromptPay)</span>
+                              <span className="font-mono font-bold text-gray-900 text-base">{order.refundPromptPayId}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(order.refundPromptPayId || "");
+                                alert("คัดลอกเลขพร้อมเพย์แล้ว!");
+                              }}
+                              className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1"
+                            >
+                              <i className="fa-regular fa-copy"></i> คัดลอก
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-xs text-gray-400 block">ธนาคาร</span>
+                                <span className="font-bold text-gray-900">{order.refundBankName}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-xs text-gray-400 block">เลขที่บัญชี</span>
+                                <span className="font-mono font-bold text-gray-900 text-base">{order.refundBankAccountNumber}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(order.refundBankAccountNumber || "");
+                                  alert("คัดลอกเลขบัญชีแล้ว!");
+                                }}
+                                className="text-xs bg-purple-100 hover:bg-purple-200 text-purple-700 px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1"
+                              >
+                                <i className="fa-regular fa-copy"></i> คัดลอก
+                              </button>
+                            </div>
+                            <div>
+                              <span className="text-xs text-gray-400 block">ชื่อบัญชี</span>
+                              <span className="font-bold text-gray-900">{order.refundBankAccountName}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Refund Slip Upload Form */}
+                      <form onSubmit={handleUploadRefundSlip} className="pt-2 border-t border-gray-100 space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-1">
+                            อัปโหลดสลิปหลักฐานการคืนเงิน *
+                          </label>
+                          <input
+                            type="file"
+                            ref={refundSlipInputRef}
+                            accept="image/*,application/pdf"
+                            onChange={handleRefundSlipFileChange}
+                            className="text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer"
+                          />
+                        </div>
+
+                        {refundSlipPreview && (
+                          <div className="max-w-xs rounded-xl overflow-hidden border border-purple-200">
+                            <img src={refundSlipPreview} alt="Preview" className="w-full h-44 object-cover" />
+                          </div>
+                        )}
+
+                        <button
+                          type="submit"
+                          disabled={isUploadingRefundSlip || !refundSlipFile}
+                          className="py-2.5 px-6 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs transition shadow-sm disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {isUploadingRefundSlip ? (
+                            <>
+                              <i className="fa-solid fa-spinner fa-spin"></i> กำลังอัปโหลด...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fa-solid fa-upload"></i> อัปโหลดสลิปคืนเงิน
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center">
+                      <i className="fa-solid fa-hourglass-half text-2xl text-gray-400 mb-2"></i>
+                      <p className="font-bold text-gray-700 text-sm">รอผู้ซื้อกรอกข้อมูลบัญชีรับเงินคืน</p>
+                      <p className="text-xs text-gray-400 mt-1">เมื่อผู้ซื้อระบุช่องทางรับเงินแล้ว ข้อมูลจะปรากฏที่นี่เพื่อให้ร้านค้าโอนเงินคืน</p>
+                    </div>
+                  )}
+
+                  {refundSlips.length > 0 && (
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+                      <h5 className="font-bold text-gray-800 text-xs flex items-center gap-2">
+                        <i className="fa-solid fa-receipt text-green-600"></i> สลิปการคืนเงินที่แนบแล้ว
+                      </h5>
+                      <div className="flex flex-wrap gap-3">
+                        {refundSlips.map((s) => (
+                          <div
+                            key={s.id}
+                            onClick={() => window.open(`${API_BASE_URL}/orders/${orderId}/refund-slips/${s.id}/file`, "_blank")}
+                            className="cursor-pointer group relative rounded-xl overflow-hidden border border-gray-200 shadow-sm max-w-xs"
+                          >
+                            <img
+                              src={`${API_BASE_URL}/orders/${orderId}/refund-slips/${s.id}/file`}
+                              alt="Refund Slip"
+                              className="w-40 h-40 object-cover group-hover:scale-105 transition"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
+                              กดเพื่อดูภาพเต็ม
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {order.status === "REFUNDED" && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center space-y-3">
+                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-emerald-600 text-2xl mx-auto shadow-sm">
+                    <i className="fa-solid fa-check"></i>
+                  </div>
+                  <h4 className="font-black text-lg text-emerald-900">การคืนเงินเสร็จสมบูรณ์แล้ว (REFUNDED)</h4>
+                  <p className="text-xs text-emerald-700">ผู้ซื้อได้ยืนยันการรับเงินคืนเรียบร้อยแล้ว</p>
+                  {refundSlips.length > 0 && (
+                    <div className="flex justify-center mt-3">
+                      <div
+                        onClick={() => window.open(`${API_BASE_URL}/orders/${orderId}/refund-slips/${refundSlips[refundSlips.length - 1].id}/file`, "_blank")}
+                        className="cursor-pointer group relative rounded-xl overflow-hidden border border-emerald-200 shadow-sm max-w-xs"
+                      >
+                        <img
+                          src={`${API_BASE_URL}/orders/${orderId}/refund-slips/${refundSlips[refundSlips.length - 1].id}/file`}
+                          alt="Refund Slip"
+                          className="w-40 h-40 object-cover group-hover:scale-105 transition"
+                        />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-bold">
+                          ดูสลิปคืนเงิน
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {order.status === "FROZEN" && (
+                <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-6 text-center space-y-2">
+                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-cyan-600 text-2xl mx-auto shadow-sm">
+                    <i className="fa-solid fa-snowflake animate-pulse"></i>
+                  </div>
+                  <h4 className="font-black text-lg text-cyan-900">ออเดอร์ถูกแช่แข็ง (FROZEN)</h4>
+                  <p className="text-xs text-cyan-700">คำสั่งซื้อนี้อยู่ระหว่างการตรวจสอบของผู้ดูแลระบบชุมชน การดำเนินการต่างๆ จะถูกระงับชั่วคราว</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -645,6 +923,45 @@ export default function SellerOrderDetailClient({ orderId }: { orderId: string }
           </div>
         </div>
 
+        {/* Cancel Order Modal for Seller */}
+        {showCancelModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-gray-100">
+              <h4 className="font-bold text-gray-800 text-lg mb-2 flex items-center gap-2">
+                <i className="fa-solid fa-triangle-exclamation text-red-500"></i> ยืนยันการยกเลิกคำสั่งซื้อ
+              </h4>
+              <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+                กรุณาระบุเหตุผลในการยกเลิกคำสั่งซื้อ เพื่อแจ้งให้ผู้ซื้อทราบ (เช่น สินค้าหมด หรือไม่พร้อมจัดส่ง)
+              </p>
+              <form onSubmit={handleSellerCancelOrder}>
+                <textarea
+                  required
+                  rows={3}
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="ระบุเหตุผลในการยกเลิก (จำเป็น)*"
+                  className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:ring-[#16A085] focus:border-[#16A085] mb-4 outline-none resize-none"
+                />
+                <div className="flex gap-3 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => { setShowCancelModal(false); setCancelReason(""); }}
+                    className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 cursor-pointer"
+                  >
+                    ปิด
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCancellingOrder}
+                    className="px-5 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold shadow-sm transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isCancellingOrder ? "กำลังยกเลิก..." : "ยืนยันยกเลิกคำสั่งซื้อ"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
